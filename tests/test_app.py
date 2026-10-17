@@ -86,7 +86,7 @@ async def test_full_signed_text_photo_voice_flow_with_real_adapters(tmp_path):
             if 'facts' in source:
                 assert source['student_names'] == ['Aarav']
                 assert len(source['facts']) == 2
-                result = GroundedAnswer(text='आरव को क्रेयॉन और ड्रॉइंग बुक लानी है। विज्ञान: पौधे के भाग, जड़ें और तने।',
+                result = GroundedAnswer(language_code='hi-IN', text='आरव को क्रेयॉन और ड्रॉइंग बुक लानी है। विज्ञान: पौधे के भाग, जड़ें और तने।',
                                         spoken_text='आरव को क्रेयॉन और ड्रॉइंग बुक लानी है। पौधे के भाग पढ़ने हैं।',
                                         source_ids=[f['source_id'] for f in source['facts']])
             elif source.get('CURRENT_OCR'):

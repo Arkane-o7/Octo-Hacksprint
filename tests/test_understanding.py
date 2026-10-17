@@ -284,7 +284,7 @@ async def test_parent_answer_prompt_handles_free_categories_and_replacement_prov
             assert "completed tasks are not pending" in prompt
             assert "source timestamps" in prompt
             return httpx.Response(200, json=complete({
-                "text": "The test has been cancelled.", "source_ids": ["science-original"],
+                "text": "The test has been cancelled.", "language_code": "en-IN", "source_ids": ["science-original"],
                 "spoken_text": "The test has been cancelled.",
             }))
 
@@ -305,7 +305,7 @@ async def test_parent_explicit_quote_proposal_remains_separate_from_approval():
         assert payload["response_format"] == {"type": "json_object"}
         assert "proposed_items" in prompt
         return httpx.Response(200, json=complete({
-            "text": "I can propose the crayons you requested for a simulated quote.",
+            "text": "I can propose the crayons you requested for a simulated quote.", "language_code": "en-IN",
             "source_ids": ["science-original"], "spoken_text": None, "proposed_items": ["crayons"],
             "cart_request_quote": "Prepare a cart for the crayons",
         }))

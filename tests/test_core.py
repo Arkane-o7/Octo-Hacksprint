@@ -119,7 +119,7 @@ async def test_school_day_survives_restart_is_date_bound_and_available_to_parent
     source_id = saved['source_id']
     octo.store.close()
     octo.store = Store(octo.settings.data_dir / 'test.sqlite3')
-    octo.ai.answer_override = GroundedAnswer(text='No classes tomorrow.', source_ids=[source_id])
+    octo.ai.answer_override = GroundedAnswer(language_code='en-IN', text='No classes tomorrow.', source_ids=[source_id])
     await put(octo, question(text='Does Aarav have class tomorrow?'))
     facts, names = octo.ai.answer_calls[-1]
     assert names == ['Aarav']
@@ -279,7 +279,7 @@ async def test_spoken_answer_does_not_silently_cut_later_exclusion(octo):
     await put(octo, notice())
     source_id = octo.store.db.execute('SELECT source_id FROM facts').fetchone()[0]
     spoken = 'Read these topics. ' * 45 + 'Do not study the appendix.'
-    octo.ai.answer_override = GroundedAnswer(text=spoken, spoken_text=spoken, source_ids=[source_id])
+    octo.ai.answer_override = GroundedAnswer(language_code='en-IN', text=spoken, spoken_text=spoken, source_ids=[source_id])
     octo.settings.mode = 'live'
     captured = []
 
@@ -294,10 +294,62 @@ async def test_spoken_answer_does_not_silently_cut_later_exclusion(octo):
 
 async def test_unknown_source_ids_cannot_be_sent_as_grounded(octo):
     await put(octo, notice())
-    octo.ai.answer_override = GroundedAnswer(text='Unsupported fact', source_ids=['made-up'])
+    octo.ai.answer_override = GroundedAnswer(language_code='en-IN', text='Unsupported fact', source_ids=['made-up'])
     await put(octo, question())
     assert 'Unsupported fact' not in output(octo)
     assert 'could not verify' in output(octo)
+
+
+async def test_each_question_routes_selected_language_to_tts_without_changing_preference(octo):
+    await put(octo, notice())
+    sid = octo.store.db.execute('SELECT source_id FROM facts').fetchone()[0]
+    preference = octo.roster.resolve(question())['language']
+    octo.settings.mode = 'live'  # Synthetic adapters only, no network.
+    spoken = []
+
+    async def speak(text, language, destination):
+        spoken.append((text, language))
+        destination.write_bytes(b'SYNTHETIC AUDIO - NOT PLAYABLE')
+        return destination
+
+    octo.ai.synthesize = speak
+    cases = [('What should I bring?', 'en-IN', 'Bring crayons.'),
+             ('कल क्या लाना है?', 'hi-IN', 'क्रेयॉन लाएँ।'),
+             ('நாளை என்ன கொண்டு வர வேண்டும்?', 'ta-IN', 'வண்ணக்கோல்கள் கொண்டு வரவும்.'),
+             ('What should I bring? Reply in Telugu.', 'te-IN', 'క్రేయాన్లు తీసుకురండి.')]
+    for index, (text, language, reply) in enumerate(cases):
+        octo.ai.answer_override = GroundedAnswer(language_code=language, text=reply,
+            spoken_text=reply, source_ids=[sid])
+        await put(octo, question('LANG-' + str(index), text=text))
+        assert spoken[-1] == (reply, language)
+        assert octo.roster.resolve(question())['language'] == preference
+        assert any(r['text'].startswith(reply + '\n\nSources:\n') for r in octo.store.replies())
+
+
+async def test_voice_language_uses_transcribed_question_and_selected_answer_language(octo):
+    from octo.contracts import Transcript
+    await put(octo, notice())
+    sid = octo.store.db.execute('SELECT source_id FROM facts').fetchone()[0]
+    octo.settings.mode = 'live'
+    transcript = 'நாளை என்ன கொண்டு வர வேண்டும்?'
+    spoken = []
+
+    async def transcribe(path, names):
+        return Transcript(text=transcript, language_code='ta-IN')
+
+    async def answer(text, facts, names, fallback):
+        assert transcript in text and 'ignored caption' not in text
+        return GroundedAnswer(language_code='ta-IN', text='வண்ணக்கோல்கள் கொண்டு வரவும்.', source_ids=[sid])
+
+    async def speak(text, language, destination):
+        spoken.append(language)
+        destination.write_bytes(b'SYNTHETIC AUDIO - NOT PLAYABLE')
+        return destination
+
+    octo.ai.transcribe, octo.ai.answer, octo.ai.synthesize = transcribe, answer, speak
+    await put(octo, question('VOICE-LANG', kind='voice', text='ignored caption',
+        media=Media(url='fixture://parent-tamil', mime_type='audio/ogg')))
+    assert spoken == ['ta-IN']
 
 
 async def test_forward_and_individual_notices_do_not_become_class_facts(octo):

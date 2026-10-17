@@ -63,6 +63,13 @@ only that group's class-wide facts. Individual records still require an explicit
 account link, and message text cannot create that link. Offline replay uses
 synthetic roster membership and never checks a real WhatsApp group.
 
+Parent answers follow the language of each current question, including voice
+transcripts. An explicit request such as “reply in Telugu” takes priority;
+the saved language preference is only a fallback for unclear input. Sarvam
+chooses the language in the same call that answers the question, and TTS uses
+that answer's language. This does not change the saved preference. Fixed system
+notices, access refusals and cart commands currently retain their English wording.
+
 1. Open `.env` locally and set `SARVAM_API_KEY`. `setup init` generates the two
    API/webhook secrets and disabled-dashboard passwords for a fresh checkout;
    it preserves an existing `.env`. Never commit or paste this file.

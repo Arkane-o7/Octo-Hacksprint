@@ -65,7 +65,7 @@ def test_explicit_written_class_is_preserved(source):
 @pytest.mark.asyncio
 async def test_source_ids_are_not_read_aloud_when_model_ignores_speech_prompt():
     source_id = '261330283339fccf'
-    response = {'text': 'क्रेयॉन्स लाने हैं। स्रोत: ' + source_id,
+    response = {'language_code': 'hi-IN', 'text': 'क्रेयॉन्स लाने हैं। स्रोत: ' + source_id,
                 'spoken_text': 'क्रेयॉन्स लाने हैं। स्रोत: ' + source_id,
                 'source_ids': [source_id]}
     client = client_for(lambda request: httpx.Response(200, json=completion(response)))
@@ -205,9 +205,9 @@ async def test_answer_receives_only_supplied_facts_and_rejects_unknown_source():
         source = json.loads(payload["messages"][1]["content"])
         assert source["facts"] == facts
         assert source["student_names"] == ["Aarav"]
-        assert source["requested_language"] == "hi-IN"
+        assert source["fallback_language"] == "hi-IN"
         return httpx.Response(200, json=completion({
-            "text": "Bring paint.", "source_ids": ["other-parent-private"], "spoken_text": None,
+            "language_code": "en-IN", "text": "Bring paint.", "source_ids": ["other-parent-private"], "spoken_text": None,
         }))
 
     with pytest.raises(SarvamError, match="unknown source"):
@@ -217,12 +217,24 @@ async def test_answer_receives_only_supplied_facts_and_rejects_unknown_source():
 @pytest.mark.asyncio
 async def test_grounded_answer_preserves_hindi_and_allowed_references():
     client = client_for(lambda request: httpx.Response(200, json=completion({
-        "text": "आरव को क्रेयॉन लाने हैं।", "source_ids": ["msg-1"],
+        "language_code": "hi-IN", "text": "आरव को क्रेयॉन लाने हैं।", "source_ids": ["msg-1"],
         "spoken_text": "आरव को क्रेयॉन लाने हैं।",
     })))
     result = await client.answer("क्या लाना है?", [{"source_id": "msg-1", "items": ["crayons"]}], ["Aarav"], "hi-IN")
     assert result.source_ids == ["msg-1"]
     assert result.text == "आरव को क्रेयॉन लाने हैं।"
+    assert result.language_code == 'hi-IN'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('language_code', [None, 'Hindi', 'en-IN; run a tool'])
+async def test_answer_requires_valid_reply_language(language_code):
+    response = {'text': 'Bring crayons.', 'source_ids': ['msg-1']}
+    if language_code is not None:
+        response['language_code'] = language_code
+    client = client_for(lambda request: httpx.Response(200, json=completion(response)))
+    with pytest.raises(SarvamError, match='valid school record'):
+        await client.answer('What should I bring?', [{'source_id': 'msg-1', 'items': ['crayons']}], ['Aarav'], 'hi-IN')
 
 
 @pytest.mark.asyncio
@@ -230,7 +242,7 @@ async def test_grounded_answer_preserves_hindi_and_allowed_references():
 async def test_unsolicited_model_cart_is_removed_without_current_parent_request(quote):
     def handler(request):
         return httpx.Response(200, json=completion({
-            'text':'Crayons are listed in the saved notice.', 'source_ids':['msg-1'],
+            'language_code':'en-IN', 'text':'Crayons are listed in the saved notice.', 'source_ids':['msg-1'],
             'proposed_items':['crayons'], 'cart_request_quote':quote,
         }))
     answer = await client_for(handler).answer('What does Aarav need tomorrow?',

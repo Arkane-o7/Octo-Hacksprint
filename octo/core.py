@@ -661,7 +661,7 @@ class Octo:
                 return
             try:
                 speech = answer.spoken_text or answer.text
-                path = await self.ai.synthesize(speech, parent['language'], self.media_dir / f'{sid}-answer.mp3')
+                path = await self.ai.synthesize(speech, answer.language_code, self.media_dir / f'{sid}-answer.mp3')
                 self.store.reply(f'{sid}:audio', event.chat_id, '', kind='voice', path=str(path))
             except Exception:
                 self.reply(sid, event, 'The written answer is ready, but audio is unavailable right now.', 'audio-status')

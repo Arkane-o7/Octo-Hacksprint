@@ -72,7 +72,7 @@ class OfflineAI:
             for section in record['sections']:
                 lines.append('Study ' + (section['chapter'] or '') + ': ' + ', '.join(section['topics']))
             lines.extend('Unresolved: ' + item for item in record['unclear'])
-        return GroundedAnswer(text='\n'.join(lines), source_ids=[f['source_id'] for f in facts])
+        return GroundedAnswer(text='\n'.join(lines), language_code='en-IN', source_ids=[f['source_id'] for f in facts])
 
     async def synthesize(self, text, language, destination):
         raise ValueError('Offline replay never generates Sarvam speech.')

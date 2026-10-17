@@ -75,6 +75,8 @@ class Transcript(BaseModel):
 
 class GroundedAnswer(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    language_code: str = Field(pattern=r'^[a-z]{2,3}-[A-Z]{2}$',
+        description='Language of this answer and spoken_text, chosen from the CURRENT question. An explicit reply-language request wins; the saved preference is only a fallback for unclear input.')
     text: str
     source_ids: list[str] = Field(default_factory=list)
     spoken_text: str | None = None

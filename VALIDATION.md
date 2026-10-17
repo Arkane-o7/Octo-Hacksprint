@@ -7,7 +7,7 @@ local and are excluded from Git.
 
 ## Reproducible local checks
 
-- Full suite: **305 tests passed** with Python 3.12. Tests use synthetic inputs,
+- Full suite: **310 tests passed** with Python 3.12. Tests use synthetic inputs,
   temporary storage and mocked remote responses; they do not prove live delivery.
 - `python -m octo.replay` is an explicitly labelled offline demonstration. It
   uses canned fixtures, performs no recognition or network calls, and cannot
@@ -40,6 +40,16 @@ parsing, compound dates and PDF structuring. This variation is why
 observations.
 
 ## Before presenting it as a live demo
+
+Parent reply language now follows each current question, with explicit language
+requests taking priority and the saved preference used only when unclear. The
+selected language is passed to TTS. Four direct live Sarvam API checks passed
+for English, Hindi, Tamil and an English question requesting Telugu, using
+fictional Science facts; these were not WhatsApp-delivery tests. Earlier probes
+found incorrect Tamil/Marathi language codes and a Marathi date error; the
+prompt was tightened before the four passing checks. Broader language accuracy
+and Marathi still need verification. Fixed system notices and access refusals
+remain in English.
 
 Follow [DEMO.md](DEMO.md) with fictional school content and dedicated accounts.
 Complete the main story twice with fresh message IDs. Verify the original image
