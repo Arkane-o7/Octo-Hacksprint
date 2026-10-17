@@ -19,7 +19,10 @@ demo account. It does not use your primary calendar or change sharing.
    - `https://www.googleapis.com/auth/drive.file`
    - `https://www.googleapis.com/auth/calendar.app.created`
 6. Under **Clients → Create client**, choose **Desktop app**, name it **Octo Mac**,
-   and download its JSON. A Web application client is not interchangeable.
+   and select **Use this client for an AI-powered agent** when offered. Octo's
+   automated workflows fit that designation; it adds no OAuth permissions.
+   Download the JSON immediately after creation, before closing the dialog.
+   A Web application client is not interchangeable.
 7. Save it locally as `data/google-client.json` inside your Octo checkout.
    Do not paste the JSON, client secret, or refresh token into chat.
 
@@ -97,6 +100,7 @@ the demo folder/calendar with that account; Octo never makes them public.
 
 Official references:
 [desktop OAuth](https://developers.google.com/identity/protocols/oauth2/native-app),
+[OAuth client setup and AI-agent designation](https://support.google.com/cloud/answer/15549257#agentic-client),
 [Drive scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth),
 [Calendar scopes](https://developers.google.com/workspace/calendar/api/auth),
 [secondary-calendar creation](https://developers.google.com/workspace/calendar/api/v3/reference/calendars/insert),
