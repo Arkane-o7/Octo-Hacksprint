@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import mimetypes
@@ -22,6 +23,8 @@ OFFLINE = "[OFFLINE DEMO — synthetic fixture responses; no live delivery]\n"
 class Roster:
     def __init__(self, path: Path, *, live=False):
         self.data = json.loads(path.read_text())
+        self.live = live
+        self.memberships = {}
         self.students = {s['id']: s for s in self.data['students']}
         self.identities = {}
         for role, entries in [('teacher', self.data['teachers']), ('parent', self.data['parents'])]:
@@ -50,23 +53,73 @@ class Roster:
                 raise ValueError('Remove the teacher demo mapping when configuring the real parent')
             self.demo_parents[teacher['id']] = target
             parent['whatsapp_ids'] = list(teacher['whatsapp_ids'])
+        if not live:
+            # Synthetic replay has no WhatsApp connection. Its explicit roster
+            # supplies fixture membership; live access always requires WAHA.
+            for group, class_id in self.data['groups'].items():
+                members = [p['whatsapp_ids'] for p in self.data['teachers'] if class_id in p['classes']]
+                members += [p['whatsapp_ids'] for p in self.data['parents']
+                            if any(self.students[s]['class_id'] == class_id for s in p['student_ids'])]
+                self.set_group_members(group, members)
+
+    def set_group_members(self, group: str, members: list[list[str]]):
+        self.memberships[group] = {wid: tuple(aliases) for aliases in members for wid in aliases}
+
+    def member_scope(self, identifiers: list[str]) -> tuple[set[str], set[str]]:
+        aliases = set(identifiers)
+        for wid in identifiers:
+            if wid in self.identities:
+                aliases.update(self.identities[wid]['whatsapp_ids'])
+        groups = set()
+        member_aliases = set()
+        for group in self.data['groups']:
+            members = self.memberships.get(group, {})
+            for wid in aliases:
+                if wid in members:
+                    groups.add(group)
+                    member_aliases.update(members[wid])
+        return groups, aliases | member_aliases
 
     def resolve(self, event: IncomingMessage) -> dict | None:
-        matches = [self.identities[x] for x in [event.sender_id, *event.sender_aliases] if x in self.identities]
-        if not matches or len({x['id'] for x in matches}) != 1:
+        groups, aliases = self.member_scope([event.sender_id, *event.sender_aliases])
+        if not groups or (event.is_group and event.chat_id not in groups):
             return None
-        person = dict(matches[0])
+        matches = [self.identities[x] for x in aliases if x in self.identities]
+        if len({x['id'] for x in matches}) > 1:
+            return None
+        if matches:
+            person = dict(matches[0])
+        else:
+            if not re.fullmatch(r'\d+@(?:c\.us|lid)', event.sender_id):
+                return None
+            # Use transport-verified aliases only; text cannot claim a parent
+            # identity or inherit a configured account's private records.
+            identity = min(aliases,
+                           key=lambda wid: (not wid.endswith('@c.us'), wid))
+            person = {'id': 'parent-' + hashlib.sha256(identity.encode()).hexdigest()[:24],
+                      'role': 'parent', 'name': 'Parent', 'student_ids': [],
+                      'whatsapp_ids': sorted(aliases),
+                      'language': 'hi-IN', 'voice_replies': True}
         if event.is_group:
             class_id = self.data['groups'].get(event.chat_id)
-            if person['role'] != 'teacher' or class_id not in person['classes']:
+            if not class_id:
+                return None
+            if person['role'] == 'teacher' and class_id not in person['classes']:
                 return None
             person['class_id'] = class_id
-        elif person['role'] != 'parent':
+            if person['role'] == 'parent':
+                # A group response must never include anyone's private details.
+                person.update(student_ids=[], classes=[class_id], class_wide_only=True)
+        elif person['role'] == 'teacher':
             target = self.demo_parents.get(person['id'])
             if not target:
                 return None
             person = dict(next(p for p in self.data['parents'] if p['id'] == target))
             person['role'] = 'parent'
+        if person['role'] == 'parent' and not event.is_group:
+            person['classes'] = sorted({self.students[s]['class_id'] for s in person['student_ids']}
+                                       if person['student_ids'] else {self.data['groups'][g] for g in groups})
+            person['class_wide_only'] = not bool(person['student_ids'])
         return person
 
     def permitted_students(self, parent: dict) -> list[dict]:
@@ -91,6 +144,7 @@ class Octo:
     def __init__(self, settings: Settings, store: Store, roster: Roster, ai, transport, *, drive=None, calendar=None):
         self.settings, self.store, self.roster = settings, store, roster
         self.ai, self.transport = ai, transport
+        self._membership_lock = asyncio.Lock()
         self.drive = drive
         self.calendar = calendar
         self.media_dir = settings.data_dir / 'media'
@@ -100,8 +154,25 @@ class Octo:
     def general_brain(self):
         return self.settings.general_brain and hasattr(self.ai, 'understand')
 
+    async def refresh_memberships(self):
+        if not self.roster.live:
+            return
+        async with self._membership_lock:
+            snapshots = {}
+            for group in self.roster.data['groups']:
+                try:
+                    snapshots[group] = await self.transport.group_members(group)
+                except Exception as exc:
+                    # Never retain stale permissions when membership is unknown.
+                    logger.warning('Group membership check failed (%s)', type(exc).__name__)
+                    snapshots[group] = []
+            for group, members in snapshots.items():
+                self.roster.set_group_members(group, members)
+
     def accept(self, event: IncomingMessage) -> str:
         if event.session != self.settings.waha_session:
+            return 'ignored'
+        if event.is_group and event.chat_id not in self.roster.data['groups']:
             return 'ignored'
         caller = self.roster.resolve(event)
         if not caller:
@@ -112,6 +183,9 @@ class Octo:
         """Copy short-lived WAHA media at ingress, before slow model work."""
         if event.session != self.settings.waha_session:
             return 'ignored'
+        if event.is_group and event.chat_id not in self.roster.data['groups']:
+            return 'ignored'
+        await self.refresh_memberships()
         caller = self.roster.resolve(event)
         if not caller:
             return 'ignored'
@@ -153,6 +227,7 @@ class Octo:
         sid = row['source_id']
         event = IncomingMessage.model_validate_json(row['event'])
         # Re-resolve on processing/restart: a changed roster cannot retain old access.
+        await self.refresh_memberships()
         caller = self.roster.resolve(event)
         if not caller:
             self.store.update(sid, status='ignored')
@@ -532,6 +607,9 @@ class Octo:
 
     async def _answer(self, sid: str, event: IncomingMessage, parent: dict, text: str):
         if re.match(r'^\s*(APPROVE|CHANGE|CANCEL)\b', text, re.I):
+            if event.is_group:
+                self.reply(sid, event, 'Please send cart commands in a direct message to me.')
+                return
             from .cart import CartService
             result = CartService(self.store.db).handle(parent['id'], event.chat_id, text,
                 is_fresh_text=event.kind == 'text' and not event.forwarded and not event.quoted_message_id and not event.is_quoted)
@@ -539,7 +617,7 @@ class Octo:
                 self.reply(sid, event, result, 'cart-action')
                 return
         if self.roster.mentions_other_student(text, parent):
-            self.reply(sid, event, 'I can only answer about students linked to your demo parent account.')
+            self.reply(sid, event, 'I can only answer individual questions about students linked to your account. You can ask about class-wide notices here.')
             return
         students = self.roster.permitted_students(parent)
         named = [student for student in students if any(
@@ -552,10 +630,11 @@ class Octo:
             return
         facts = self.store.facts_for(parent, students)
         if not facts:
-            self.reply(sid, event, 'I do not have saved school information for your students yet. Ask the teacher to post a notice in the demo group.')
+            self.reply(sid, event, 'I do not have saved school information for your class yet. Ask the teacher to post a notice in the demo group.')
             return
         question = f"Current date in Asia/Kolkata: {event.timestamp.astimezone(ZoneInfo('Asia/Kolkata')).date().isoformat()}\nParent question: {text}"
-        answer = await self.ai.answer(question, facts, [s['name'] for s in students], parent['language'])
+        names = [s['name'] for s in students] or ['Class ' + class_id for class_id in parent['classes']]
+        answer = await self.ai.answer(question, facts, names, parent['language'])
         by_id = {f['source_id']: f for f in facts}
         if not answer.source_ids or any(s not in by_id for s in answer.source_ids):
             self.reply(sid, event, 'I could not verify an answer against the saved notices. Please ask again or ask the teacher to clarify.')
@@ -571,7 +650,7 @@ class Octo:
             if calendar.get('status') == 'synced' and calendar.get('url'):
                 citations.append('Calendar: ' + calendar['url'])
         self.reply(sid, event, answer.text + '\n\nSources:\n' + '\n'.join(citations))
-        if answer.proposed_items and answer.cart_request_quote and answer.cart_request_quote.casefold() in text.casefold():
+        if not event.is_group and answer.proposed_items and answer.cart_request_quote and answer.cart_request_quote.casefold() in text.casefold():
             from .cart import CartService
             self.reply(sid, event, CartService(self.store.db).propose(parent['id'], event.chat_id, answer.proposed_items), 'cart')
         # Text delivery is independent of TTS failure/latency.
@@ -590,6 +669,7 @@ class Octo:
     async def poll_job(self, row: dict):
         sid = row['source_id']
         event = IncomingMessage.model_validate_json(row['event'])
+        await self.refresh_memberships()
         caller = self.roster.resolve(event)
         if not caller or caller['role'] != 'teacher':
             self.store.update(sid, status='ignored')
@@ -665,6 +745,7 @@ class Octo:
         reply = self.store.next_reply()
         if not reply:
             return False
+        await self.refresh_memberships()
         if not self._delivery_allowed(reply):
             self.store.delivery(reply['id'], 'cancelled', error='Recipient access changed or reminder is no longer current.')
             return True
@@ -686,6 +767,8 @@ class Octo:
 
     def _delivery_allowed(self, reply):
         # Re-check at send time too: a queued response can outlive a roster edit.
+        if reply['chat_id'] not in self.roster.data['groups'] and not self.roster.member_scope([reply['chat_id']])[0]:
+            return False
         if ':calendar:' in reply['dedupe_key']:
             source_id, calendar_id = reply['dedupe_key'].split(':calendar:', 1)
             if calendar_id != self.settings.calendar_id or self.store.db.execute('SELECT 1 FROM fact_replacements WHERE old_source_id=?', (source_id,)).fetchone():
@@ -711,7 +794,16 @@ class Octo:
             if not caller:
                 return False
             before = json.loads(row['context'])
-            return caller['role'] != 'parent' or set(before['student_ids']) == set(caller['student_ids'])
+            previous_role = 'parent' if before['role'] == 'student' else before['role']
+            if before['id'] != caller['id'] or previous_role != caller['role']:
+                return False
+            if caller['role'] == 'teacher':
+                return before.get('class_id') == caller.get('class_id')
+            previous_classes = before.get('classes', [self.roster.students[s]['class_id']
+                                                       for s in before['student_ids'] if s in self.roster.students])
+            return (set(before['student_ids']) == set(caller['student_ids'])
+                    and set(previous_classes) == set(caller['classes'])
+                    and before.get('class_wide_only', False) == caller['class_wide_only'])
         return reply['chat_id'] in self.roster.data['groups'] or any(reply['chat_id'] in p['whatsapp_ids'] for p in self.roster.data['parents'])
 
     async def tick(self) -> bool:

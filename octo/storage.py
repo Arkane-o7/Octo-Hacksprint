@@ -228,11 +228,13 @@ class Store:
             self.db.execute('UPDATE reminders SET status=? WHERE id=?', (status, identifier))
 
     def facts_for(self, parent: dict, students: list[dict]) -> list[dict]:
-        classes = {student['class_id'] for student in students}
+        classes = {student['class_id'] for student in students} if students else set(parent.get('classes', []))
         student_ids = {student['id'] for student in students}
         results = []
         # Tiny demo data set; filtering still happens before any facts reach Sarvam.
         for row in self.db.execute("SELECT * FROM facts WHERE source_id NOT IN (SELECT old_source_id FROM fact_replacements) ORDER BY created DESC LIMIT 200"):
+            if parent.get('class_wide_only') and (row['owner_id'] is not None or row['student_id'] is not None):
+                continue
             shared = row['owner_id'] is None and row['class_id'] in classes and (row['student_id'] is None or row['student_id'] in student_ids)
             private = row['owner_id'] == parent['id'] and (row['student_id'] is None or row['student_id'] in student_ids)
             if shared or private:

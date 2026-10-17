@@ -55,6 +55,7 @@ def create_app(settings: Settings | None = None, *, ai=None, transport=None, dri
     async def health(request: Request):
         octo = request.app.state.octo
         return {'status': 'ok', 'mode': octo.settings.mode,
+                'parent_access': 'group_members_only',
                 'general_brain_enabled': octo.settings.general_brain,
                 'calendar_configured': bool(octo.calendar and octo.calendar.configured),
                 'external_integrations_verified': False,

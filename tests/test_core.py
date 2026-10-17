@@ -169,7 +169,7 @@ async def test_class_day_updates_preserve_existing_requirements_and_sources(octo
 
 @pytest.mark.parametrize('changes', [
     {'sender_id': 'stranger'}, {'session': 'personal'},
-    {'chat_id': 'personal-group@g.us'}, {'sender_id': 'demo-parent-a'},
+    {'chat_id': 'personal-group@g.us'},
 ])
 async def test_unallowlisted_source_never_enters_storage(octo, changes):
     assert await octo.ingest(notice(**changes)) == 'ignored'

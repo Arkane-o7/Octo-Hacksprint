@@ -14,7 +14,7 @@ import re
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import unquote, urlsplit, urlunsplit
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 import httpx
 
@@ -164,6 +164,34 @@ class WahaClient:
         self._headers = {"X-Api-Key": api_key}
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(30, connect=10), follow_redirects=False)
+
+    async def group_members(self, group_id: str) -> list[list[str]]:
+        """Read current members and their transport-provided phone/LID aliases."""
+        if not group_id.endswith('@g.us'):
+            raise ValueError('Expected a WhatsApp group ID')
+        endpoint = f'/api/{quote(self.session, safe="")}/groups/{quote(group_id, safe="")}/participants'
+        response = await self._client.get(self.base_url + endpoint, headers=self._headers,
+                                          timeout=15, follow_redirects=False)
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, list):
+            raise ValueError('WAHA returned an invalid group member list')
+        members = []
+        for participant in data:
+            if not isinstance(participant, dict):
+                raise ValueError('WAHA returned an invalid group member')
+            aliases = set()
+            for field in ('id', 'phoneNumber', 'lid'):
+                value = participant.get(field)
+                if isinstance(value, dict):
+                    value = value.get('_serialized')
+                identifier = _jid(value)
+                if _person(identifier):
+                    aliases.add(identifier)
+            if not aliases:
+                raise ValueError('Group member has no valid WhatsApp identity')
+            members.append(sorted(aliases))
+        return members
 
     def _media_url(self, value: str | None) -> str:
         if not value:

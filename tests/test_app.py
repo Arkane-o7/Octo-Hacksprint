@@ -17,6 +17,22 @@ from octo.sarvam import SarvamClient
 from octo.waha import WahaClient
 
 
+class MemberTransport(OfflineTransport):
+    def __init__(self):
+        super().__init__()
+        self.members = [[f'91900000000{n}@c.us'] for n in (1, 2, 3)]
+        self.membership_error = False
+
+    async def group_members(self, group_id):
+        if self.membership_error:
+            raise httpx.ConnectError('Fixture membership failure')
+        return self.members
+
+    async def send_text(self, chat_id, text, reply_to=None):
+        await super().send_text(chat_id, text, reply_to)
+        return f'fixture-sent-{len(self.sent)}'
+
+
 def live_config(tmp_path):
     roster = json.loads(open('roster.example.json').read())
     roster['groups'] = {'120363000000001@g.us': '5B'}
@@ -57,6 +73,8 @@ async def test_full_signed_text_photo_voice_flow_with_real_adapters(tmp_path):
         path = request.url.path
         if request.url.host in ('localhost', '127.0.0.1'):
             assert request.headers['x-api-key'] == 'fake-waha'
+            if path.endswith('/participants'):
+                return httpx.Response(200, json=[{'id': f'91900000000{n}@c.us'} for n in (1, 2, 3)])
             if path.startswith('/api/files/'):
                 return httpx.Response(200, content=b'EXPLICIT MOCK MEDIA BYTES')
             data = json.loads(request.content)
@@ -125,16 +143,79 @@ async def test_full_signed_text_photo_voice_flow_with_real_adapters(tmp_path):
             assert all(r['status'] == 'sent' for r in app.state.octo.store.replies())
 
 
-async def test_webhook_auth_and_unknown_sender_fail_before_ingestion(tmp_path):
-    app = create_app(live_config(tmp_path), ai=OfflineAI(), transport=OfflineTransport(), worker=False)
+async def test_webhook_auth_required_and_only_group_members_are_parents(tmp_path):
+    transport = MemberTransport()
+    app = create_app(live_config(tmp_path), ai=OfflineAI(), transport=transport, worker=False)
     async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://app') as client:
         assert (await send(client, envelope('T1'), secret='wrong')).status_code == 401
         assert (await send(client, envelope('T1'), algorithm='sha256')).status_code == 401
         event = envelope('T1')
         event['payload']['participant'] = '919999999999@c.us'
+        assert app.state.octo.store.counts()['inbox'] == 0
         assert (await send(client, event)).json()['status'] == 'ignored'
         assert app.state.octo.store.counts()['inbox'] == 0
+        assert not transport.sent
+        transport.members.append(['919999999999@c.us'])
+        assert (await send(client, event)).json()['status'] == 'queued'
+        context = json.loads(app.state.octo.store.db.execute('SELECT context FROM inbox').fetchone()[0])
+        assert context['role'] == 'parent'
+        await drain(app.state.octo)
+        assert app.state.octo.store.counts()['facts'] == 0
+        assert app.state.octo.transport.sent
         assert (await send(client, {'event': 'message', 'payload': {}})).status_code == 400
+
+
+async def test_live_member_can_dm_without_posting_in_group_and_loses_access_on_leave(tmp_path):
+    transport = MemberTransport()
+    app = create_app(live_config(tmp_path), ai=OfflineAI(), transport=transport, worker=False)
+    async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://app') as client:
+        event = envelope('MEMBER-DM', parent=True, body='What should we bring tomorrow?')
+        event['payload']['from'] = '123456@lid'
+        assert (await send(client, event)).json()['status'] == 'ignored'
+        transport.members.append(['123456@lid', '919000000010@c.us'])
+        assert (await send(client, event)).json()['status'] == 'queued'
+        row = app.state.octo.store.db.execute('SELECT context FROM inbox').fetchone()
+        assert json.loads(row[0])['role'] == 'parent'
+        await drain(app.state.octo)
+        assert len(transport.sent) == 1 and transport.sent[0]['chat_id'] == '123456@lid'
+        transport.members.pop()
+        event['payload']['id'] = 'LEFT-DM'
+        assert (await send(client, event)).json()['status'] == 'ignored'
+        assert len(transport.sent) == 1
+
+
+@pytest.mark.parametrize('failure', ['left_group', 'lookup_failed'])
+@pytest.mark.parametrize('stage', ['ingestion', 'processing', 'delivery', 'unlinked_reply'])
+async def test_membership_required_even_for_configured_parent_and_queued_replies(tmp_path, failure, stage):
+    transport = MemberTransport()
+    app = create_app(live_config(tmp_path), ai=OfflineAI(), transport=transport, worker=False)
+    async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://app') as client:
+        event = envelope('PARENT', parent=True)
+        core = app.state.octo
+        if stage != 'ingestion':
+            assert (await send(client, event)).json()['status'] == 'queued'
+        else:
+            # First populate a valid snapshot, then prove it is not reused.
+            await core.refresh_memberships()
+        if failure == 'left_group':
+            transport.members = [['919000000001@c.us']]
+        else:
+            transport.membership_error = True
+        if stage == 'ingestion':
+            event['payload']['hasMedia'] = True
+            event['payload']['media'] = {'url': 'fixture://parent-hindi', 'mimetype': 'audio/ogg'}
+            assert (await send(client, event)).json()['status'] == 'ignored'
+            assert core.store.counts()['inbox'] == 0
+        elif stage == 'processing':
+            await core.process(core.store.next_message())
+            assert core.store.db.execute('SELECT status FROM inbox').fetchone()[0] == 'ignored'
+        else:
+            sid = core.store.db.execute('SELECT source_id FROM inbox').fetchone()[0]
+            key = sid + ':answer' if stage == 'delivery' else 'previous-queued-reply'
+            core.store.reply(key, '919000000002@c.us', 'A queued reply')
+            await core.deliver_one()
+            assert core.store.replies()[0]['status'] == 'cancelled'
+        assert not transport.sent
 
 
 async def test_offline_http_cannot_accept_live_whatsapp_events(tmp_path):
@@ -148,7 +229,7 @@ async def test_offline_http_cannot_accept_live_whatsapp_events(tmp_path):
 async def test_background_worker_processes_signed_message_without_manual_tick(tmp_path):
     delivered = asyncio.Event()
 
-    class RecordingTransport(OfflineTransport):
+    class RecordingTransport(MemberTransport):
         async def send_text(self, chat_id, text, reply_to=None):
             await super().send_text(chat_id, text, reply_to)
             delivered.set()

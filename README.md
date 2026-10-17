@@ -50,6 +50,19 @@ questions in DMs to the bot. Do not pair a personal account or add personal grou
 WAHA is an unofficial linked-device bridge, so pairing and message compatibility
 must be checked on the actual account.
 
+Every member of a configured WhatsApp class group other than its teacher gets
+the **parent** role. Group members can ask about shared class notices in the
+group or in DMs. Non-members receive no automated replies, including numbers
+listed in the parent roster. Live group membership is checked through WAHA
+before ingestion, processing and delivery; a failed lookup does not reuse old
+membership. Phone/LID aliases come from the transport's participant list.
+Only configured teachers can save or update notices. Existing `parents` entries
+retain their linked-student access and language preferences. New group members
+see only class-wide facts for groups they belong to; group answers always use
+only that group's class-wide facts. Individual records still require an explicit
+account link, and message text cannot create that link. Offline replay uses
+synthetic roster membership and never checks a real WhatsApp group.
+
 1. Open `.env` locally and set `SARVAM_API_KEY`. `setup init` generates the two
    API/webhook secrets and disabled-dashboard passwords for a fresh checkout;
    it preserves an existing `.env`. Never commit or paste this file.
@@ -157,9 +170,9 @@ leave it absent when testing separate teacher and parent accounts. Follow
 
 Forwarded teacher notices need a fresh confirmation containing the full notice.
 WhatsApp message edits/deletes are not applied automatically: post a new explicit
-correction. Parents use DMs; teacher ingestion is restricted to the allowlisted
-group. Multi-child parents must identify the child. This is one fictional demo
-school with manually configured identities, not production multi-school tenancy.
+correction. Individual student questions and carts use DMs; teacher ingestion is
+restricted to the allowlisted group. Multi-child accounts must identify the
+child. This is one fictional demo school, not production multi-school tenancy.
 
 ## Optional Google Drive filing
 

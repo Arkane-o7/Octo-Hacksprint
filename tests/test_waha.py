@@ -229,3 +229,33 @@ async def test_send_timeout_is_not_retried():
         with pytest.raises(httpx.ReadTimeout):
             await waha.send_text("919000000001@c.us", "Hello")
     assert len(calls) == 1
+async def test_group_members_reads_verified_phone_and_lid_aliases():
+    def remote(request):
+        assert request.method == 'GET'
+        assert request.url.path == '/api/default/groups/120363123@g.us/participants'
+        assert request.headers['x-api-key'] == 'secret'
+        return httpx.Response(200, json=[
+            {'id': '123456@lid', 'phoneNumber': '919000000010:7@s.whatsapp.net', 'admin': None},
+            {'id': {'_serialized': '919000000011@c.us'}, 'lid': '654321@lid'},
+        ])
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(remote)) as client:
+        transport = WahaClient('http://localhost:3000', 'secret', 'default', client=client)
+        assert await transport.group_members('120363123@g.us') == [
+            ['123456@lid', '919000000010@c.us'], ['654321@lid', '919000000011@c.us'],
+        ]
+
+
+@pytest.mark.parametrize('body', [{}, [None], [{'id': 'status@broadcast'}], [{'name': 'Teacher'}]])
+async def test_group_members_rejects_unusable_membership_responses(body):
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=body))) as client:
+        transport = WahaClient('http://localhost:3000', 'secret', 'default', client=client)
+        with pytest.raises(ValueError):
+            await transport.group_members('120363123@g.us')
+
+
+async def test_group_members_does_not_ignore_http_errors():
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(503))) as client:
+        transport = WahaClient('http://localhost:3000', 'secret', 'default', client=client)
+        with pytest.raises(httpx.HTTPStatusError):
+            await transport.group_members('120363123@g.us')
