@@ -1,0 +1,25 @@
+name: octo-demo
+services:
+  waha:
+    image: devlikeapro/waha:noweb-arm-2026.9.2
+    platform: linux/arm64
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      WHATSAPP_DEFAULT_ENGINE: NOWEB
+      WAHA_API_KEY: ${WAHA_API_KEY:?Set WAHA_API_KEY in .env}
+      WHATSAPP_HOOK_URL: http://host.docker.internal:8018/webhooks/waha
+      WHATSAPP_HOOK_EVENTS: message
+      WHATSAPP_HOOK_HMAC_KEY: ${WAHA_WEBHOOK_SECRET:?Set WAHA_WEBHOOK_SECRET in .env}
+      WAHA_DASHBOARD_ENABLED: "false"
+      WAHA_DASHBOARD_USERNAME: admin
+      WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD:?Run setup init or configure local dashboard credentials}
+      WHATSAPP_SWAGGER_ENABLED: "false"
+      WHATSAPP_SWAGGER_USERNAME: admin
+      WHATSAPP_SWAGGER_PASSWORD: ${WHATSAPP_SWAGGER_PASSWORD:?Run setup init or configure local Swagger credentials}
+    volumes:
+      - octo-waha-sessions:/app/.sessions
+      - octo-waha-media:/app/.media
+volumes:
+  octo-waha-sessions:
+  octo-waha-media:

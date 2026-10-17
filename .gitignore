@@ -1,0 +1,37 @@
+.env*
+!.env.example
+.venv/
+__pycache__/
+.pytest_cache/
+data/
+roster.local.json
+.DS_Store
+
+# Local OAuth, service credentials and private keys.
+*credentials*.json
+*oauth*.json
+client_secret*.json
+google-client*.json
+google-resources*.json
+*.pem
+*.key
+
+# Databases, backups, logs and linked-device runtime state.
+*.sqlite*
+*.db
+*.db-*
+*.log
+*.bak
+.sessions/
+.media/
+sessions/
+whatsapp-session*/
+waha-data/
+pairing-qr*
+
+# Operator-only records contain real account details and message references.
+STATUS.md
+PARENT_TEST.md
+LIVE_DEMO_REPORT.md
+VALIDATION.local.md
+

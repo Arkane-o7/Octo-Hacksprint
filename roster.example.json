@@ -1,0 +1,15 @@
+{
+  "school": "Octo Demo School",
+  "groups": {"demo-class-5b@g.us": "5B"},
+  "teachers": [{"id": "teacher-rao", "name": "Ms. Rao", "whatsapp_ids": ["demo-teacher"], "classes": ["5B"]}],
+  "students": [
+    {"id": "aarav", "name": "Aarav", "aliases": ["आरव", "ஆரவ்"], "class_id": "5B"},
+    {"id": "meera", "name": "Meera", "aliases": ["मीरा", "மீரா"], "class_id": "5B"},
+    {"id": "kabir", "name": "Kabir", "aliases": ["कबीर", "கபீர்"], "class_id": "6A"}
+  ],
+  "parents": [
+    {"id": "parent-a", "name": "Aarav's parent", "whatsapp_ids": ["demo-parent-a"], "student_ids": ["aarav"], "language": "hi-IN", "voice_replies": true},
+    {"id": "parent-b", "name": "Meera and Kabir's parent", "whatsapp_ids": ["demo-parent-b"], "student_ids": ["meera", "kabir"], "language": "ta-IN", "voice_replies": true}
+  ]
+}
+
