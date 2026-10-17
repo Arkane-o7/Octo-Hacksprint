@@ -12,7 +12,7 @@ import hmac
 import json
 import os
 import secrets
-import sqlite3
+from contextlib import closing
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -27,6 +27,9 @@ SCOPES = ('https://www.googleapis.com/auth/drive.file',
 TOKEN_URL = 'https://oauth2.googleapis.com/token'
 DRIVE_URL = 'https://www.googleapis.com/drive/v3/files'
 CALENDAR_URL = 'https://www.googleapis.com/calendar/v3/calendars'
+
+
+from .database import connect
 
 
 class SetupError(RuntimeError):
@@ -163,11 +166,11 @@ def provision(client, credentials, resources_path):
     return resources
 
 
-def retry_calendar_jobs(data_dir, calendar_id):
+def retry_calendar_jobs(data_dir, calendar_id, db_key=""):
     database = data_dir / 'live' / 'octo.sqlite3'
     if not calendar_id or not database.is_file():
         return 0
-    with sqlite3.connect(database) as connection:
+    with closing(connect(database, db_key)) as connection, connection:
         if not connection.execute("SELECT 1 FROM sqlite_master WHERE name='calendar_jobs'").fetchone():
             return 0
         return connection.execute("UPDATE calendar_jobs SET status='pending',attempts=0,next_attempt=0,error=NULL WHERE calendar_id=? AND status='failed'", (calendar_id,)).rowcount
@@ -184,7 +187,7 @@ def main():
         if args.retry_calendar:
             from .config import Settings
             settings = Settings.from_env()
-            count = retry_calendar_jobs(settings.data_dir, settings.calendar_id)
+            count = retry_calendar_jobs(settings.data_dir, settings.calendar_id, settings.db_key)
             print(f'Queued {count} failed Calendar jobs for the running worker. No Google write has been confirmed by this command.')
             return
         with httpx.Client() as client:

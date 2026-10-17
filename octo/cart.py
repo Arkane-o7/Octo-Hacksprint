@@ -7,6 +7,7 @@ import json
 import re
 import secrets
 import sqlite3
+from sqlcipher3 import dbapi2 as cipher
 import time
 
 
@@ -115,7 +116,7 @@ class CartService:
                     (code, parent_id, chat_id, quote_json, _hash(quote_json), quote["version"], now, now + EXPIRY_SECONDS),
                 )
                 return code
-            except sqlite3.IntegrityError:
+            except (sqlite3.IntegrityError, cipher.IntegrityError):
                 # The code is random; retry the extremely unlikely collision.
                 if not self.db.execute("SELECT 1 FROM carts WHERE code=?", (code,)).fetchone():
                     raise

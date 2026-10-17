@@ -3,18 +3,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
 import time
 from pathlib import Path
 
+from .database import connect
 from .contracts import IncomingMessage, Extraction
 
 
 class Store:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, key: str = ""):
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(path, check_same_thread=False)
-        self.db.row_factory = sqlite3.Row
+        self.db = connect(path, key)
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript("""
             CREATE TABLE IF NOT EXISTS inbox (

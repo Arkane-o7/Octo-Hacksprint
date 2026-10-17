@@ -61,3 +61,15 @@ Use [GOOGLE_SETUP.md](GOOGLE_SETUP.md) for the manual consent step. Confirm acce
 with the intended viewer; the app never makes Drive files or calendars public.
 If a service fails, explicitly identify the offline fixture replay or locally
 captured API check being shown. Neither is successful live WhatsApp delivery.
+
+## Database encryption — 18 October 2026
+
+- 316 local tests pass, including encrypted persistence, wrong/missing-key
+  rejection, plaintext migration, failed-export recovery and encrypted Calendar
+  retries. The signed webhook application tests also use encrypted databases.
+- The local live database and seven old database snapshots were migrated with
+  SQLCipher 4.12.0. Integrity and table row counts passed; ordinary SQLite could
+  no longer read the live database. The worker restarted and WhatsApp remained
+  WORKING. These checks do not establish a new end-to-end phone rehearsal.
+- Keys remain local and ignored. Media, logs and other files are outside the
+  database encryption boundary; see [setup and recovery](DATABASE_ENCRYPTION.md).

@@ -42,7 +42,7 @@ def live_config(tmp_path):
     path = tmp_path / 'roster.json'
     path.write_text(json.dumps(roster))
     return Settings(mode='live', data_dir=tmp_path, roster_path=path, poll_seconds=0, general_brain=True,
-                    sarvam_api_key='fake-sarvam', waha_api_key='fake-waha', webhook_secret='fake-hook')
+                    db_key='ab' * 32, sarvam_api_key='fake-sarvam', waha_api_key='fake-waha', webhook_secret='fake-hook')
 
 
 def envelope(message_id, *, parent=False, media=None, body='Bring crayons and a drawing book tomorrow.'):

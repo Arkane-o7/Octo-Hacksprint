@@ -22,7 +22,7 @@ def create_app(settings: Settings | None = None, *, ai=None, transport=None, dri
         config = settings or Settings.from_env()
         config.check_live()
         roster = Roster(config.roster_path, live=config.mode == 'live')
-        store = Store(config.data_dir / config.mode / 'octo.sqlite3')
+        store = Store(config.data_dir / config.mode / 'octo.sqlite3', key=config.db_key if config.mode == 'live' else '')
         model = ai or (OfflineAI() if config.mode == 'offline' else SarvamClient(
             config.sarvam_api_key, base_url=config.sarvam_base_url,
             chat_model=config.chat_model, stt_model=config.stt_model,

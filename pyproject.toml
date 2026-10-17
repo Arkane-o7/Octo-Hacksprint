@@ -9,6 +9,7 @@ dependencies = [
   "httpx>=0.27,<1",
   "pydantic>=2.10,<3",
   "python-dotenv>=1,<2",
+  "sqlcipher3-wheels==0.5.7",
 ]
 
 [dependency-groups]

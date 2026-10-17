@@ -267,3 +267,10 @@ is unverified until consent and a live event check are completed.
 
 No dashboard, merchant connection, deployment or persistent macOS service is
 installed. These are not implied by local success.
+
+### Encrypted live database
+
+Live mode requires `OCTO_DB_KEY` (64 random hexadecimal characters) in the ignored
+local `.env`. Existing databases must be migrated with the worker stopped before
+restarting. Follow [database encryption setup](DATABASE_ENCRYPTION.md); preserve
+the key separately so backups remain recoverable. Offline fixtures stay plaintext.

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 class Settings(BaseModel):
     mode: Literal["offline", "live"] = "offline"
+    db_key: str = Field(default="", repr=False)
     general_brain: bool = False
     data_dir: Path = Path("data")
     roster_path: Path = Path("roster.example.json")
@@ -34,6 +35,7 @@ class Settings(BaseModel):
     def from_env(cls) -> "Settings":
         load_dotenv()
         return cls(
+            db_key=os.getenv("OCTO_DB_KEY", ""),
             mode=os.getenv("OCTO_MODE", "offline"),
             general_brain=os.getenv('OCTO_GENERAL_BRAIN', 'false').lower() == 'true',
             data_dir=Path(os.getenv("OCTO_DATA_DIR", "data")),
@@ -58,10 +60,12 @@ class Settings(BaseModel):
     def check_live(self) -> None:
         if self.mode == "live":
             missing = [name for name, value in (
+                ("OCTO_DB_KEY", self.db_key),
                 ("SARVAM_API_KEY", self.sarvam_api_key),
                 ("WAHA_API_KEY", self.waha_api_key),
                 ("WAHA_WEBHOOK_SECRET", self.webhook_secret),
             ) if not value.strip()]
             if missing:
                 raise ValueError("Live mode requires local configuration: " + ", ".join(missing))
-
+            from .database import validate_key
+            validate_key(self.db_key)
