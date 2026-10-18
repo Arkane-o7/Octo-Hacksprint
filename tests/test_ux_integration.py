@@ -88,6 +88,13 @@ async def test_missing_date_restart_completion_quote_calendar_and_provenance(app
         original = original.model_copy(update={'kind': 'image', 'media': Media(url='fixture://board-clear', mime_type='image/jpeg')})
     await send(app, original)
     assert app.store.class_facts('5B')[0]['extraction']['due_date'] is None
+    confirmations = [r for r in app.store.replies() if r['reply_to'] == 'SOURCE' and not r['dedupe_key'].endswith(':ack')]
+    assert len(confirmations) == 1
+    assert confirmations[0]['text'].count('Reply with just the date.') == 1
+    assert confirmations[0]['text'].count('*Please confirm*') == 1
+    assert 'When should students bring' not in confirmations[0]['text']
+    assert 'crayons' in confirmations[0]['text'] and 'Ms. Rao' in confirmations[0]['text']
+    assert 'When should students bring these items?' in app.store.class_facts('5B')[0]['extraction']['unclear']
     restart(app)
     app.settings.mode = 'live'  # Fake providers only; enable scheduling policy.
     followup = notice('DATE', text=str(stamp.year + 1), timestamp=stamp + timedelta(minutes=1))
@@ -285,3 +292,41 @@ async def test_narrow_parser_does_not_enable_activity_updates(app, kind, status)
     await send(app, notice(text='Unsupported update'))
     assert not app.store.class_facts('5B')
     assert app.settings.general_brain is False
+
+@pytest.mark.parametrize('kind', ['requirement', 'school_day'])
+@pytest.mark.parametrize('text, prompt', [('Bring supplies', 'Reply with just the date.'),
+    ('सामग्री लाएँ', 'केवल तारीख़ भेजें।'), ('பொருட்கள் கொண்டு வாருங்கள்', 'தேதியை மட்டும் அனுப்புங்கள்.')])
+async def test_single_localized_missing_date_prompt_and_restart(app, kind, text, prompt):
+    async def extract(*args):
+        return Extraction(kind=kind, items=['crayons', 'a drawing book'] if kind == 'requirement' else [],
+                          school_day_status='no_classes' if kind == 'school_day' else None)
+    app.ai.extract_notice = extract
+    await send(app, notice('MISSING', text=text))
+    replies = [r for r in app.store.replies() if r['reply_to'] == 'MISSING']
+    assert len(replies) == 1 and replies[0]['text'].count(prompt) == 1
+    assert len(app.store.class_facts('5B')) == (1 if kind == 'requirement' else 0)
+    if kind == 'school_day':
+        assert 'Saved' not in replies[0]['text'] and '✓' not in replies[0]['text']
+    restart(app)
+    await send(app, notice('COMPLETE', text='Tomorrow'))
+    assert len(app.store.class_facts('5B')) == 1
+    assert app.store.class_facts('5B')[0]['extraction']['due_date'] == '2026-10-19'
+
+
+@pytest.mark.parametrize('kind', ['requirement', 'school_day'])
+@pytest.mark.parametrize('unclear', [False, True])
+async def test_multiple_or_unclear_notices_require_full_correction(app, unclear, kind):
+    async def extract(*args):
+        return Extraction(kind=kind, items=['crayons'] if kind == 'requirement' else [],
+                          school_day_status='no_classes' if kind == 'school_day' else None,
+                          unclear=['Quantity is unreadable'] if unclear else [])
+    app.ai.extract_notice = extract
+    await send(app, notice('FIRST', text='Bring crayons'))
+    await send(app, notice('SECOND', text='Bring crayons'))
+    replies = [r for r in app.store.replies() if r['reply_to'] == 'SECOND']
+    assert len(replies) == 1 and 'full corrected notice' in replies[0]['text']
+    assert 'Reply with just the date' not in replies[0]['text']
+    if unclear and kind == 'requirement':
+        assert 'Quantity is unreadable' in replies[0]['text']
+    await send(app, notice('AMBIGUOUS_DATE', text='Tomorrow'))
+    assert all(f['extraction']['due_date'] is None for f in app.store.class_facts('5B'))

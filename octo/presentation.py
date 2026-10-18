@@ -54,7 +54,7 @@ def source_line(source: dict) -> str:
         return sender
 
 
-def saved_notice(record, class_id: str, source: dict, *, reminder=False, language='en-IN') -> str:
+def saved_notice(record, class_id: str, source: dict, *, reminder=False, language='en-IN', date_guidance=None, date_only_uncertainty=False) -> str:
     if record.kind == 'school_day':
         title = 'No classes' if record.school_day_status == 'no_classes' else 'Classes as usual'
     elif record.status == 'cancelled':
@@ -88,7 +88,10 @@ def saved_notice(record, class_id: str, source: dict, *, reminder=False, languag
             lines.append(message('Pages', language) + ' ' + plain(section.pages))
     if record.instructions:
         lines += ['', '*' + message('Remember', language) + '*', *('• ' + plain(item) for item in record.instructions)]
-    unclear = list(dict.fromkeys(record.unclear))
+    # Presentation may consolidate date questions; canonical uncertainty is untouched.
+    unclear = [] if date_guidance and date_only_uncertainty else list(dict.fromkeys(record.unclear))
+    if date_guidance:
+        unclear.append(message(date_guidance, language))
     if record.date_as_written and not record.due_date and not unclear:
         unclear.append(message('Please confirm the full date, including the year.', language))
     if unclear:

@@ -405,20 +405,28 @@ class Octo:
         if result.date_as_written and (re.fullmatch(r'\d{1,2}(?:st|nd|rd|th)? [A-Za-z]+', result.date_as_written.strip(), re.I)
                 or re.fullmatch(r'\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?', result.date_as_written.strip())):
             result.due_date = None  # A month/day without its year needs confirmation.
-        if not result.due_date and result.status == 'active' and date_uncertainty_only(result) and not result.student_id and not result.replaces_source_ids:
+        date_only_uncertainty = date_uncertainty_only(result)
+        date_guidance = None
+        if not result.due_date:
+            date_guidance = 'Please send the full corrected notice with its date and year, including any unclear details.'
+        if not result.due_date and result.status == 'active' and date_only_uncertainty and not result.student_id and not result.replaces_source_ids:
             if result.kind != 'school_day' or (result.school_day_status and not result.subject and not result.items and not result.sections):
                 original = self.store.message(event.source_key) or {}
                 self.contexts.put(event, caller, 'teacher', {
                     'record': result.model_dump(), 'event': event.model_dump(mode='json'),
                     'ocr_text': original.get('ocr_text'),
                 }, slot=sid, ttl=86400)
-                self.reply(sid, event, 'Which date (including year) applies? Reply with just the date. If several notices are pending, send a full corrected notice.', 'date-clarify')
+                pending = self.contexts.get(event, caller, 'teacher')
+                if len(pending) == 1 and pending[0][0] == sid:
+                    date_guidance = 'Which date (including year) applies? Reply with just the date.'
         if result.kind == 'school_day':
+            if not result.due_date:
+                lang = self._ui_language(sid, event, caller)
+                self.reply(sid, event, message('I have not changed the class-day record.', lang)
+                           + '\n\n' + message(date_guidance, lang))
+                return
             if not result.school_day_status or result.subject or result.items or result.sections or result.unclear:
                 self.reply(sid, event, 'I have not changed the class-day record. Please confirm whether the whole class has no classes or classes as usual, and give the date. Send any supplies or syllabus in a separate notice.')
-                return
-            if not result.due_date:
-                self.reply(sid, event, 'Which date does this class-day notice apply to? Reply with the date; I have not changed the class-day record.')
                 return
         else:
             result.school_day_status = None
@@ -428,7 +436,8 @@ class Octo:
         self.queue_calendar_sync()
         reminder = self._schedule_reminders(sid, result, event.timestamp)
         source = {'sender': caller['name'], 'timestamp': event.timestamp.isoformat()}
-        self.reply(sid, event, saved_notice(result, caller['class_id'], source, reminder=reminder, language=self._ui_language(sid, event, caller)))
+        self.reply(sid, event, saved_notice(result, caller['class_id'], source, reminder=reminder, language=self._ui_language(sid, event, caller),
+                                           date_guidance=date_guidance, date_only_uncertainty=date_only_uncertainty))
 
     async def _understand(self, sid, event, caller, text, *, ocr_text=None):
         applied = self.store.applied_decision(event.source_key)

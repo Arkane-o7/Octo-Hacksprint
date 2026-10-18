@@ -41,3 +41,11 @@ Feature notes describe their individual commits. This integration record superse
 ## Real-device acceptance remaining
 
 A separate user-assisted handset rehearsal must check WhatsApp quotation rendering, perceived acknowledgment timing, voice playback/preferences, actual handwriting OCR and short-voice STT/TTS in English/Hindi/Tamil, and real Calendar authorization/delivery. Synthetic checks cannot establish provider or handset reliability.
+
+## Missing-date message polish
+
+Undated supplies/notes now render one saved acknowledgment with one localized date request. The presentation consolidates only date-related questions; the stored extraction and its uncertainty remain unchanged. A unique eligible pending notice offers “Reply with just the date.” Multiple pending notices or other uncertainty require a full corrected notice. Undated class-day notices issue one honest not-changed prompt and are only saved after valid completion.
+
+The encrypted multi-turn acceptance scenarios assert a single substantive response, preserved items/source/uncertainty, restart-safe completion and one fact. Additional English/Hindi/Tamil and class-day/ambiguous scenarios cover the same behavior. Fresh actual synthetic rendering is in `offline-examples.md`.
+
+Polish validation: affected suite **108 passed in 0.72s**; complete suite **417 passed in 1.77s**. Only fixture adapters and temporary storage were used. No main merge, live messages or service restarts.
