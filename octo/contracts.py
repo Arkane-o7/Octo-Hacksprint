@@ -26,6 +26,7 @@ class IncomingMessage(BaseModel):
     is_group: bool = False
     forwarded: bool = False
     quoted_message_id: str | None = None
+    quoted_chat_id: str | None = None
     is_quoted: bool = False
 
     @field_validator("timestamp")
@@ -75,6 +76,10 @@ class Transcript(BaseModel):
 
 class GroundedAnswer(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    basis: Literal['school', 'conversation', 'clarification'] = Field(default='school',
+        description='School information requires current fact source_ids. Conversation recalls only what this user said; clarification asks for missing information and asserts no school facts.')
+    context_ids: list[str] = Field(default_factory=list, max_length=12,
+        description='Exact supplied conversation reference IDs supporting recall of user-provided details. Never substitutes for teacher sources about school facts.')
     language_code: str = Field(pattern=r'^[a-z]{2,3}-[A-Z]{2}$',
         description='Language of this answer and spoken_text, chosen from the CURRENT question. An explicit reply-language request wins; the saved preference is only a fallback for unclear input.')
     text: str

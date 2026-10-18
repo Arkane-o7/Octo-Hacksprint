@@ -80,6 +80,20 @@ Calendar links, with audio according to the original voice-reply preference or
 voice input. Numbered menus, list pickers, buttons and join-menu onboarding are
 removed. Existing encrypted notices and saved records are retained.
 
+Conversation context now accompanies each question: up to the last 12 nonempty exchanges
+from the same parent, chat, session and current access scope, persisted in the
+encrypted database across restarts. Reply to a saved message in WhatsApp and ask
+about it to select that message explicitly. Known teacher notices use only the
+facts the caller can currently access; old assistant answers are omitted if their
+sources changed. Unknown or inaccessible quotes ask for clarification. Embedded
+quote text is never trusted as a permission grant or a teacher notice.
+
+This is bounded conversation memory, not unlimited permanent recall. Earlier
+user-provided details can be recalled as "you told me", separately from verified
+school information. A quote can bring an older saved message back into context.
+Messages are not shared across parents, private chats or groups. No extra model
+call is added, though the existing answer call receives more context tokens.
+
 1. Open `.env` locally and set `SARVAM_API_KEY`. `setup init` generates the two
    API/webhook secrets and disabled-dashboard passwords for a fresh checkout;
    it preserves an existing `.env`. Never commit or paste this file.

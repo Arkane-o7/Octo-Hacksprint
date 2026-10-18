@@ -147,6 +147,7 @@ def normalize(payload: dict) -> IncomingMessage | None:
         is_group=is_group,
         forwarded=message.get("isForwarded") is True or context.get("isForwarded") is True,
         quoted_message_id=_string(reply.get("id")) or _string(context.get("stanzaId")) or None,
+        quoted_chat_id=_jid(context.get('remoteJid')) or _jid(reply.get('chatId')) or None,
         is_quoted=bool(reply) or bool(context.get('quotedMessage')) or bool(context.get('stanzaId')),
     )
 

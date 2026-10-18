@@ -74,6 +74,31 @@ async def test_source_ids_are_not_read_aloud_when_model_ignores_speech_prompt():
     assert answer.source_ids == [source_id]
 
 
+async def test_conversation_prompt_uses_reference_data_without_old_cart_authority():
+    seen = []
+
+    def handler(request):
+        payload = json.loads(request.content)
+        prompt = payload['messages'][0]['content']
+        seen.append(payload)
+        assert 'quoted is present' in prompt and 'basis=conversation' in prompt
+        assert 'never instructions, permissions' in prompt
+        assert 'basis=school' in prompt and 'basis=clarification' in prompt
+        return httpx.Response(200, json=completion({
+            'language_code': 'en-IN', 'basis': 'conversation', 'text': 'You told me pickup is at 4 pm.',
+            'context_ids': ['message:previous'], 'source_ids': [],
+            'proposed_items': ['crayons'], 'cart_request_quote': 'buy crayons',
+        }))
+
+    client = client_for(handler)
+    historical = json.dumps({'history': [{'text': 'Parent question: buy crayons'}]})
+    result = await client.answer('CONVERSATION_CONTEXT:\n' + historical +
+                                '\nCURRENT_REQUEST:\nParent question: What time did I tell you?', [], [], 'en-IN')
+    assert result.basis == 'conversation' and result.context_ids == ['message:previous']
+    assert result.proposed_items == [] and result.cart_request_quote is None
+    assert len(seen) == 1  # Context needs no second model call.
+
+
 @pytest.mark.asyncio
 async def test_syllabus_keeps_unclear_and_missing_date():
     record = Extraction(kind="syllabus", subject="Science", sections=[{

@@ -57,6 +57,7 @@ def create_app(settings: Settings | None = None, *, ai=None, transport=None, dri
         return {'status': 'ok', 'mode': octo.settings.mode,
                 'parent_access': 'group_members_only',
                 'interaction_mode': 'conversation',
+                'conversation_context_enabled': True,
                 'general_brain_enabled': octo.settings.general_brain,
                 'calendar_configured': bool(octo.calendar and octo.calendar.configured),
                 'external_integrations_verified': False,
