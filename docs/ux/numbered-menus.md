@@ -21,6 +21,10 @@ become cart approvals or freeform model requests. Menu navigation makes no AI ca
 The existing speech and question actions still use Sarvam credits.
 
 See the [WAHA list-message contract](https://waha.devlike.pro/docs/how-to/send-messages/#send-list).
+`OCTO_MENU_STYLE=buttons` explicitly opts into the deprecated inline quick-reply
+endpoint instead of the list picker. This is a handset compatibility experiment,
+not a guarantee: WhatsApp may accept the send without displaying the buttons.
+Button replies use the same scoped option IDs and validation as list replies.
 The tappable-menu change passes **426 tests**, including 21 new normalization,
 selection, isolation, fallback and uncertain-delivery checks. Tests use synthetic
 adapters; actual list rendering still requires a handset check.

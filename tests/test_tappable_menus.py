@@ -25,6 +25,37 @@ def test_unknown_list_response_cannot_become_a_freeform_command():
     assert message.menu_choice_id == 'invalid' and message.text == ''
 
 
+@pytest.mark.parametrize('content', [
+    {'buttonsResponseMessage': {'selectedButtonId': 'octo:0123456789abcdef:4'}},
+    {'templateButtonReplyMessage': {'selectedId': 'octo:0123456789abcdef:4'}},
+    {'interactiveResponseMessage': {'nativeFlowResponseMessage': {'paramsJson': '{"id":"octo:0123456789abcdef:4"}'}}},
+])
+def test_inline_button_response_preserves_scoped_id(content):
+    incoming = normalize(event(body='APPROVE UNTRUSTED', _data={'message': content}))
+    assert incoming.menu_choice_id == 'octo:0123456789abcdef:4'
+    assert incoming.text == ''
+
+
+@pytest.mark.parametrize('params', ['not json', '[]', '{"id":null}', 'x' * 4097])
+def test_bad_native_button_response_does_not_fall_through(params):
+    incoming = normalize(event(body='APPROVE UNTRUSTED', _data={'message': {
+        'interactiveResponseMessage': {'nativeFlowResponseMessage': {'paramsJson': params}}}}))
+    assert incoming.menu_choice_id == 'invalid' and incoming.text == ''
+
+
+async def test_inline_button_payload_includes_stable_ids():
+    def handler(request):
+        assert request.url.path == '/api/sendButtons'
+        payload = json.loads(request.content)
+        assert payload['buttons'] == [{'type': 'reply', 'id': 'octo:0123456789abcdef:4', 'text': 'Settings'}]
+        assert payload['body'] == 'Menu text'
+        return httpx.Response(200, json={'key': {'id': 'button-message'}})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        waha = WahaClient('http://localhost:3000', 'fake', 'default', client=client, menu_style='buttons')
+        menu = {'title':'Octo','description':'Menu text','sections':[{'rows':[{'title':'Settings','rowId':'octo:0123456789abcdef:4'}]}]}
+        assert await waha.send_menu('919000000001@c.us', 'Menu text', menu) == 'button-message'
+
+
 async def capture_menus(app):
     app.settings.tappable_menus = True
     sent = []
