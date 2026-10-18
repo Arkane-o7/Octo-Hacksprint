@@ -15,6 +15,8 @@ from .config import Settings
 from .contracts import Extraction, IncomingMessage, NoticeDecision
 from .storage import Store
 from .delivery import should_speak
+from .menus import Menus, OPEN_MENU
+from .menu_copy import copy as menu_copy, menu_language
 from .sarvam import SarvamError
 from .presentation import saved_notice, answer_text, error_message, source_line, friendly_date, requested_link_types
 
@@ -146,6 +148,7 @@ class Octo:
     def __init__(self, settings: Settings, store: Store, roster: Roster, ai, transport, *, drive=None, calendar=None):
         self.settings, self.store, self.roster = settings, store, roster
         self.ai, self.transport = ai, transport
+        self.menus = Menus(self)
         self._membership_lock = asyncio.Lock()
         self.drive = drive
         self.calendar = calendar
@@ -250,7 +253,9 @@ class Octo:
                 self.store.update(sid, transcript=text)
 
             if caller['role'] == 'teacher':
-                if event.forwarded:
+                if event.kind == 'text' and text.strip().casefold().rstrip('!?.।') in OPEN_MENU:
+                    self.reply(sid, event, menu_copy('teacher', menu_language(text, caller)))
+                elif event.forwarded:
                     self.reply(sid, event, 'Please confirm this forwarded notice in a fresh class message with the relevant date. I have not changed the class records.')
                 elif event.kind in ('image', 'document'):
                     path = await self._media(sid, event)
@@ -594,6 +599,11 @@ class Octo:
             if result is not None:
                 self.reply(sid, event, result, 'cart-action')
                 return
+        parent = self.menus.preferences(event, parent)
+        route = await self.menus.handle(sid, event, parent, text)
+        if route.handled:
+            return
+        text = route.text
         if self.roster.mentions_other_student(text, parent):
             self.reply(sid, event, 'I can only answer individual questions about students linked to your account. You can ask about class-wide notices here.')
             return
@@ -601,10 +611,12 @@ class Octo:
         named = [student for student in students if any(
             re.search(r'(?<!\w)' + re.escape(name) + r'(?!\w)', text, re.I)
             for name in [student['name'], *student.get('aliases', [])])]
-        if named:
+        if route.student_id:
+            students = [student for student in students if student['id'] == route.student_id]
+        elif named:
             students = named
         elif len(students) > 1:
-            self.reply(sid, event, 'Which student do you mean: ' + ', '.join(s['name'] for s in students) + '? Please include the name in your question.')
+            self.menus.choose_child(sid, event, parent, text, students, menu_language(text, parent), route.links)
             return
         facts = self.store.facts_for(parent, students)
         if not facts:
@@ -618,8 +630,9 @@ class Octo:
             self.reply(sid, event, 'I could not verify an answer against the saved notices. Please ask again or ask the teacher to clarify.')
             return
         cited_facts = [by_id[source_id] for source_id in dict.fromkeys(answer.source_ids)]
-        self.reply(sid, event, answer_text(answer.text, cited_facts, answer.language_code, requested_link_types(text, answer.requested_links)))
-        if not event.is_group and answer.proposed_items and answer.cart_request_quote and answer.cart_request_quote.casefold() in text.casefold():
+        footer = self.menus.answer_menu(sid, event, parent, answer, cited_facts, students)
+        self.reply(sid, event, answer_text(answer.text, cited_facts, answer.language_code, requested_link_types(text, [*answer.requested_links, *route.links])) + footer)
+        if not event.is_group and not route.selected and answer.proposed_items and answer.cart_request_quote and answer.cart_request_quote.casefold() in text.casefold():
             from .cart import CartService
             self.reply(sid, event, CartService(self.store.db).propose(parent['id'], event.chat_id, answer.proposed_items), 'cart')
         # Text delivery is independent of TTS failure/latency.

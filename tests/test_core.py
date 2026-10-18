@@ -209,7 +209,7 @@ async def test_unauthorized_student_and_ambiguous_family_question_do_not_call_mo
     await put(octo, question(text='What does Meera need?'))
     await put(octo, question('P2', sender_id='demo-parent-b', chat_id='demo-parent-b', text='What does my child need?'))
     assert not octo.ai.answer_calls
-    assert 'linked to your' in output(octo) and 'Which student' in output(octo)
+    assert 'linked to your' in output(octo) and 'Which child?' in output(octo)
 
 
 async def test_photo_is_copied_before_model_work_and_retains_suffix_caption(octo):
