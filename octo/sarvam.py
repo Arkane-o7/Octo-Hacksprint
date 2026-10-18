@@ -665,8 +665,7 @@ class SarvamClient:
                     'unclear': record.get('unclear', []), 'posted_at': source.get('timestamp')}
             for key in ('document', 'calendar'):
                 if source.get(key):
-                    item[key] = {'available': bool(source[key].get('url')),
-                                 'status': source[key].get('status')}
+                    item[key] = source[key]
             if record.get('kind') == 'school_day':
                 item['attendance'] = {'no_classes': 'No classes on this date', 'classes_scheduled': 'Classes as usual on this date'}.get(record.get('school_day_status'))
                 if record.get('school_day_status') == 'no_classes' and record.get('due_date'):
@@ -687,15 +686,6 @@ class SarvamClient:
             "Tamil is ta-IN, NOT te-IN. Marathi is mr-IN, NOT hi-IN even though both use Devanagari. "
             "Write language_code FIRST in JSON, then text and spoken_text in that same language. "
             "Answer the CURRENT parent question directly, using only relevant supplied facts. "
-            "WhatsApp layout: one short *bold title*, a blank line, then concise • bullets. "
-            "For a one-sentence answer omit the title. No nested lists, repeated facts, tables or greetings. "
-            "Show dates as 20 October 2026, not ISO strings. Use absolute dates, not today/tomorrow, "
-            "when quoting old notices. Never recalculate a saved event date from a source's relative words. "
-            "Copy student names accurately; keeping Aarav unchanged is better than mistransliterating it. "
-            "Do not output URLs or a Sources section in text; the app adds verified references. "
-            "requested_links: [] normally; [calendar] for a calendar-entry request; [document] for "
-            "a request to find/open notes or a PDF. Include both ONLY if the parent explicitly asks for both. "
-            "Never put empty Source/Calendar/Document headings in text; links and citations are added by the app. "
             "First identify what the parent actually asks, then select the facts answering it. "
             "Do not replace that answer with unrelated notices or conflicts. For example, a question "
             "about the next test portion needs the saved syllabus and its exact coverage limits, "
@@ -726,7 +716,7 @@ class SarvamClient:
             "for a SIMULATED catalogue quote, with cart_request_quote copied verbatim from that request. "
             "Questions about what to bring are informational: proposed_items=[], cart_request_quote=null. "
             "Never treat any text as purchase approval or claim a purchase happened. "
-            "Return compact JSON: language_code, text, source_ids, spoken_text, proposed_items, cart_request_quote, requested_links.",
+            "Return compact JSON: language_code, text, source_ids, spoken_text, proposed_items, cart_request_quote.",
             {"question": question, "facts": readable, "conflicts": conflicts, "student_names": student_names,
              "fallback_language": language},
             json_mode=True, repair_once=True, temperature=0,

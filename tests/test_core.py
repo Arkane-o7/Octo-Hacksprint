@@ -91,7 +91,7 @@ async def test_requirement_date_source_dedup_and_restart(octo):
     assert json.loads(row['extraction'])['due_date'] == '2026-10-19'
     assert json.loads(row['provenance'])['message_id'] == 'T1'
     await put(octo, question())
-    assert 'crayons' in output(octo) and '*Sources*' in output(octo)
+    assert 'crayons' in output(octo) and 'Sources:' in output(octo)
     other_connection = Store(octo.settings.data_dir / 'test.sqlite3')
     assert other_connection.counts()['facts'] == 1
     assert not other_connection.enqueue(event, octo.roster.resolve(event))
@@ -115,7 +115,7 @@ async def test_school_day_survives_restart_is_date_bound_and_available_to_parent
     assert record['due_date'] == '2026-10-19'  # Message timestamp is Oct 18 IST.
     assert record['items'] == [] and record['sections'] == []
     assert json.loads(saved['provenance'])['text'] == event.text
-    assert '*No classes*' in output(octo) and '19 Oct 2026' in output(octo)
+    assert 'No classes.' in output(octo) and '2026-10-19' in output(octo)
     source_id = saved['source_id']
     octo.store.close()
     octo.store = Store(octo.settings.data_dir / 'test.sqlite3')
@@ -124,7 +124,7 @@ async def test_school_day_survives_restart_is_date_bound_and_available_to_parent
     facts, names = octo.ai.answer_calls[-1]
     assert names == ['Aarav']
     assert facts[0]['extraction']['school_day_status'] == 'no_classes'
-    assert source_id not in output(octo) and '*Sources*' in output(octo) and 'Ms. Rao' in output(octo)
+    assert source_id in output(octo) and 'Sources:' in output(octo)
 
 
 @pytest.mark.parametrize('changes', [
@@ -164,7 +164,7 @@ async def test_class_day_updates_preserve_existing_requirements_and_sources(octo
     assert records[0]['items'] == ['crayons', 'a drawing book']
     assert records[1]['school_day_status'] == 'no_classes'
     assert records[2]['school_day_status'] == 'classes_scheduled'
-    assert '*Classes as usual*' in output(octo)
+    assert 'Classes as usual.' in output(octo)
 
 
 @pytest.mark.parametrize('changes', [
@@ -209,7 +209,7 @@ async def test_unauthorized_student_and_ambiguous_family_question_do_not_call_mo
     await put(octo, question(text='What does Meera need?'))
     await put(octo, question('P2', sender_id='demo-parent-b', chat_id='demo-parent-b', text='What does my child need?'))
     assert not octo.ai.answer_calls
-    assert 'linked to your' in output(octo) and 'Which child?' in output(octo)
+    assert 'linked to your' in output(octo) and 'Which student' in output(octo)
 
 
 async def test_photo_is_copied_before_model_work_and_retains_suffix_caption(octo):
@@ -231,7 +231,7 @@ async def test_unclear_syllabus_leaves_date_and_pages_unset(octo):
     await put(octo, notice('IMG', kind='image', media=Media(url='fixture://board-unclear', mime_type='image/jpeg')))
     record = json.loads(octo.store.db.execute('SELECT extraction FROM facts').fetchone()[0])
     assert record['due_date'] is None and record['sections'][0]['pages'] is None
-    assert record['unclear'] and '*Please confirm*' in output(octo)
+    assert record['unclear'] and 'Please clarify:' in output(octo)
 
 
 async def test_explicit_full_syllabus_date_is_resolved_when_model_leaves_it_null(octo):
@@ -270,9 +270,8 @@ async def test_text_survives_tts_failure_and_cannot_claim_audio_sent(octo):
     octo.ai.tts_fails = True
     await put(octo, question(kind='voice', media=Media(url='fixture://parent-hindi', mime_type='audio/ogg')))
     parent_replies = [r for r in octo.store.replies() if r['chat_id'] == 'demo-parent-a']
-    assert parent_replies[0]['dedupe_key'].endswith(':voice-ack')
-    assert 'crayons' in parent_replies[1]['text']
-    assert 'audio is unavailable' in parent_replies[2]['text']
+    assert 'crayons' in parent_replies[0]['text']
+    assert 'audio is unavailable' in parent_replies[1]['text']
     assert all(r['kind'] == 'text' for r in parent_replies)
 
 
@@ -324,9 +323,7 @@ async def test_each_question_routes_selected_language_to_tts_without_changing_pr
         await put(octo, question('LANG-' + str(index), text=text))
         assert spoken[-1] == (reply, language)
         assert octo.roster.resolve(question())['language'] == preference
-        from octo.presentation import LABELS
-        heading = LABELS[language.split('-')[0]][0]
-        assert any(r['text'].startswith(reply + '\n\n*' + heading + '*\n') for r in octo.store.replies())
+        assert any(r['text'].startswith(reply + '\n\nSources:\n') for r in octo.store.replies())
 
 
 async def test_voice_language_uses_transcribed_question_and_selected_answer_language(octo):
@@ -376,21 +373,3 @@ async def test_ambiguous_delivery_not_retried_on_restart(octo):
     octo.store.close()
     octo.store = Store(octo.settings.data_dir / 'test.sqlite3')
     assert not await octo.deliver_one()
-
-
-async def test_document_navigation_keeps_verified_link_without_calendar_dump(octo):
-    await put(octo, notice())
-    sid = octo.store.db.execute('SELECT source_id FROM facts').fetchone()[0]
-    row = octo.store.db.execute('SELECT provenance FROM facts WHERE source_id=?', (sid,)).fetchone()
-    source = json.loads(row[0])
-    source['document'] = {'url': 'https://drive.google.com/file/d/fixture/view'}
-    source['calendar'] = {'status': 'synced', 'url': 'https://www.google.com/calendar/event?eid=fixture'}
-    with octo.store.db:
-        octo.store.db.execute('UPDATE facts SET provenance=? WHERE source_id=?', (json.dumps(source), sid))
-    octo.ai.answer_override = GroundedAnswer(language_code='en-IN', text='Here are the notes.', source_ids=[sid])
-    event = question('LINK', text='Where are the Science Chapter 6 notes?')
-    await put(octo, event)
-    reply = next(r['text'] for r in reversed(octo.store.replies()) if 'Here are the notes' in r['text'])
-    assert source['document']['url'] in reply
-    assert source['calendar']['url'] not in reply
-    assert sid not in reply and '*Sources*' in reply

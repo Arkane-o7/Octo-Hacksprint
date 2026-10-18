@@ -193,7 +193,6 @@ async def test_send_text_chunks_preserving_text_and_quotes_first_only():
         waha = WahaClient("http://localhost:3000", "secret", "demo", client=client)
         result = await waha.send_text("919000000001@s.whatsapp.net", text, "ORIGINAL")
     assert len(bodies) == 2 and result == "M2"
-    assert all(b["linkPreview"] is False for b in bodies)
     assert "".join(b["text"] for b in bodies) == text
     assert all(len(b["text"]) <= 3500 and b["session"] == "demo" for b in bodies)
     assert bodies[0]["reply_to"] == "ORIGINAL" and "reply_to" not in bodies[1]

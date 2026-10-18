@@ -14,12 +14,7 @@ from zoneinfo import ZoneInfo
 from .config import Settings
 from .contracts import Extraction, IncomingMessage, NoticeDecision
 from .storage import Store
-from .delivery import should_speak
-from .menus import Menus, OPEN_MENU
-from .onboarding import Onboarding
-from .menu_copy import copy as menu_copy, menu_language
 from .sarvam import SarvamError
-from .presentation import saved_notice, answer_text, error_message, source_line, friendly_date, requested_link_types
 
 logger = logging.getLogger(__name__)
 OFFLINE = "[OFFLINE DEMO — synthetic fixture responses; no live delivery]\n"
@@ -104,7 +99,7 @@ class Roster:
             person = {'id': 'parent-' + hashlib.sha256(identity.encode()).hexdigest()[:24],
                       'role': 'parent', 'name': 'Parent', 'student_ids': [],
                       'whatsapp_ids': sorted(aliases),
-                      'language': 'hi-IN', 'voice_replies': False}
+                      'language': 'hi-IN', 'voice_replies': True}
         if event.is_group:
             class_id = self.data['groups'].get(event.chat_id)
             if not class_id:
@@ -149,8 +144,6 @@ class Octo:
     def __init__(self, settings: Settings, store: Store, roster: Roster, ai, transport, *, drive=None, calendar=None):
         self.settings, self.store, self.roster = settings, store, roster
         self.ai, self.transport = ai, transport
-        self.menus = Menus(self)
-        self.onboarding = Onboarding(self)
         self._membership_lock = asyncio.Lock()
         self._membership_retry_at = 0.0
         self.drive = drive
@@ -220,8 +213,7 @@ class Octo:
     def reply(self, sid: str, event: IncomingMessage, text: str, suffix='answer'):
         if self.settings.mode == 'offline':
             text = OFFLINE + text
-        self.store.reply(f'{sid}:{suffix}', event.chat_id, text,
-                         reply_to=event.message_id, reply_chat_id=event.chat_id)
+        self.store.reply(f'{sid}:{suffix}', event.chat_id, text)
 
     async def _media(self, sid: str, event: IncomingMessage) -> Path:
         if not event.media:
@@ -252,8 +244,6 @@ class Octo:
         try:
             text = row.get('transcript') or event.text
             if event.kind == 'voice' and not row.get('transcript'):
-                self.reply(sid, event, '🎙️ Processing your voice message…', 'voice-ack')
-                await self.deliver_one(key=f'{sid}:voice-ack')
                 path = await self._media(sid, event)
                 names = ([s['name'] for s in self.roster.permitted_students(caller)]
                          if caller['role'] == 'parent' else [s['name'] for s in self.roster.students.values() if s['class_id'] in caller['classes']])
@@ -264,15 +254,13 @@ class Octo:
                 self.store.update(sid, transcript=text)
 
             if caller['role'] == 'teacher':
-                if event.kind == 'text' and text.strip().casefold().rstrip('!?.।') in OPEN_MENU:
-                    self.reply(sid, event, menu_copy('teacher', menu_language(text, caller)))
-                elif event.forwarded:
+                if event.forwarded:
                     self.reply(sid, event, 'Please confirm this forwarded notice in a fresh class message with the relevant date. I have not changed the class records.')
                 elif event.kind in ('image', 'document'):
                     path = await self._media(sid, event)
                     if event.kind == 'document' and (path.suffix.lower() != '.pdf' or not path.read_bytes().startswith(b'%PDF-')):
                         raise ValueError('Please send a PDF document, or a JPEG/PNG board photo.')
-                    self.reply(sid, event, '📄 Reading your PDF…' if event.kind == 'document' else '📷 Reading your photo…', 'ack')
+                    self.reply(sid, event, 'Reading the PDF…' if event.kind == 'document' else 'Reading the photo…', 'ack')
                     # Keep the acknowledgement ahead of a potentially slow submission.
                     await self.deliver_one()
                     job_id = row.get('job_id') or await self.ai.submit_document(path)
@@ -304,14 +292,14 @@ class Octo:
         if len(safe) > 250:
             safe = 'The service could not finish that request. Please try again shortly.'
         self.store.update(row['source_id'], status='failed', error=type(exc).__name__)
-        self.reply(row['source_id'], event, error_message(safe), 'error')
+        self.reply(row['source_id'], event, safe, 'error')
 
     async def _save_extraction(self, sid: str, event: IncomingMessage, caller: dict, result: Extraction):
         if result.kind == 'unknown' or (result.kind != 'school_day' and not (result.items or result.sections)):
             if event.kind in ('image', 'document'):
                 self.reply(sid, event, 'I could not identify school requirements, syllabus topics or lesson notes in this attachment. Please send the actual school notice or a clearer photo of the notes; nothing was saved.')
             else:
-                self.reply(sid, event, '*Notice not saved*\n\nI can save supplies, study topics and class-day notices.\n\nSpecific lesson, test or practice changes are not supported yet.')
+                self.reply(sid, event, 'I have not saved this notice. I can save supplies, syllabus topics, or a dated whole-class holiday/class-day notice. Specific lesson, test or practice changes are not supported yet.')
             return
         if result.class_as_written:
             normalize = lambda x: re.sub(r'[^a-z0-9]', '', x.lower().replace('class', '').replace('grade', ''))
@@ -355,9 +343,24 @@ class Octo:
             result.unclear.append('When should students bring these items?')
         self.store.save_fact(sid, caller, result, event)
         self.queue_calendar_sync()
-        reminder = self._schedule_reminders(sid, result, event.timestamp)
-        source = {'sender': caller['name'], 'timestamp': event.timestamp.isoformat()}
-        self.reply(sid, event, saved_notice(result, caller['class_id'], source, reminder=reminder))
+        lines = [f"Saved for Class {caller['class_id']}" + (f" — {result.subject}" if result.subject else '')]
+        if self._schedule_reminders(sid, result, event.timestamp):
+            lines.append('Parent reminder scheduled.')
+        if result.due_date:
+            lines.append(f'Date: {result.due_date}')
+        if result.kind == 'school_day':
+            lines.append('No classes.' if result.school_day_status == 'no_classes' else 'Classes as usual.')
+        lines.extend('• ' + item for item in result.items)
+        for section in result.sections:
+            if section.chapter:
+                lines.append(section.chapter)
+            lines.extend('☐ ' + topic for topic in section.topics)
+            if section.pages:
+                lines.append('Pages: ' + section.pages)
+        lines.extend('Instruction: ' + item for item in result.instructions)
+        lines.extend('Please clarify: ' + item for item in dict.fromkeys(result.unclear))
+        lines.append(f"Source: {caller['name']}, {event.timestamp.astimezone(ZoneInfo('Asia/Kolkata')).strftime('%d %b %H:%M')} [{sid}]")
+        self.reply(sid, event, '\n'.join(lines))
 
     async def _understand(self, sid, event, caller, text, *, ocr_text=None):
         applied = self.store.applied_decision(event.source_key)
@@ -463,13 +466,29 @@ class Octo:
         self.queue_calendar_sync()
         validated = [(sid if index == 0 else f'{sid}-{index + 1}', record) for index, record in enumerate(decision.records)]
         if validated:
-            source = {'sender': caller['name'], 'timestamp': event.timestamp.isoformat()}
-            blocks = [saved_notice(record, caller['class_id'], source,
-                       reminder=self._schedule_reminders(source_id, record, event.timestamp))
-                      for source_id, record in validated]
+            lines = [f"Saved for Class {caller['class_id']}"]
+            for source_id, record in validated:
+                if record.summary:
+                    lines.append(record.summary)
+                if record.status != 'active':
+                    lines.append('Status: ' + record.status)
+                if record.due_date:
+                    lines.append('Date: ' + record.due_date)
+                lines.extend('• ' + item for item in record.items)
+                for section in record.sections:
+                    if section.chapter:
+                        lines.append(section.chapter)
+                    lines.extend('☐ ' + topic for topic in section.topics)
+                    if section.pages:
+                        lines.append('Pages: ' + section.pages)
+                lines.extend('Instruction: ' + instruction for instruction in record.instructions)
+                lines.extend('Please clarify: ' + unclear for unclear in record.unclear)
+                if self._schedule_reminders(source_id, record, event.timestamp):
+                    lines.append('Parent reminder scheduled.')
+                lines.append(f"Source: {caller['name']}, {event.timestamp.astimezone(ZoneInfo('Asia/Kolkata')).strftime('%d %b %H:%M')} [{source_id}]")
             if decision.reply:
-                blocks.append(decision.reply)
-            self.reply(sid, event, '\n\n'.join(blocks))
+                lines.append(decision.reply)
+            self.reply(sid, event, '\n'.join(lines))
         elif decision.reply:
             reply = decision.reply
             if decision.source_ids:
@@ -520,29 +539,25 @@ class Octo:
                 if not fact['extraction'].get('due_date') or fact['extraction']['due_date'] < today or fact['extraction'].get('unclear'):
                     self.store.calendar_result(job['source_id'], job['calendar_id'], {'status': 'skipped'})
                     return True
-            # A backlog must not put slow Google work ahead of this notice's
-            # substantive saved reply (including records from one decision).
-            acknowledgements = self.store.db.execute(
-                "SELECT dedupe_key FROM outbox WHERE status='pending' AND chat_id=? AND reply_to=? AND dedupe_key LIKE '%:answer'",
-                (fact['source'].get('chat_id'), fact['source'].get('message_id'))).fetchall()
-            for acknowledgement in acknowledgements:
-                await self.deliver_one(key=acknowledgement['dedupe_key'])
             with self.store.db:
                 self.store.db.execute("UPDATE calendar_jobs SET status='syncing',attempts=attempts+1 WHERE source_id=? AND calendar_id=?", (job['source_id'],job['calendar_id']))
             try:
                 result = await self.calendar.delete_fact(job['source_id']) if operation == 'delete' else await self.calendar.sync_fact(fact)
                 self.store.calendar_result(job['source_id'], job['calendar_id'], result)
+                if result.get('url') and result.get('status') == 'synced':
+                    chat = fact['source'].get('chat_id')
+                    if chat in self.roster.data['groups']:
+                        self.store.reply(f"{job['source_id']}:calendar:{job['calendar_id']}", chat,
+                            'Added to the demo Google Calendar (all-day): ' + result['url'])
             except Exception:
                 attempts = job['attempts'] + 1
                 with self.store.db:
                     self.store.db.execute("UPDATE calendar_jobs SET status=?,next_attempt=?,error=? WHERE source_id=? AND calendar_id=?",
                         ('failed' if attempts >= 3 else 'pending', time.time() + 30 * attempts,
-                         ('Calendar sync unconfirmed; retries exhausted. Check OAuth and the demo calendar.' if attempts >= 3
-                          else 'Calendar sync unconfirmed; retry scheduled.'), job['source_id'],job['calendar_id']))
+                         'Calendar sync unconfirmed; check OAuth and the demo calendar.', job['source_id'],job['calendar_id']))
                 if attempts >= 3 and fact['source'].get('chat_id') in self.roster.data['groups']:
                     self.store.reply(f"{job['source_id']}:calendar-error:{job['calendar_id']}", fact['source']['chat_id'],
-                        'The school record is saved, but Google Calendar synchronization is unconfirmed after three attempts. Automatic retries have stopped; check the demo calendar and OAuth setup.',
-                        reply_to=fact['source'].get('message_id'), reply_chat_id=fact['source']['chat_id'])
+                        'The school record is saved, but Google Calendar synchronization is unconfirmed. Check the demo calendar and OAuth setup.')
             return True
         return False
 
@@ -585,7 +600,7 @@ class Octo:
             return True
         # Send the saved requirement as a reminder, not a fresh assertion that
         # a conflicting school-day notice has been resolved.
-        lines = ['⏰ *School reminder*', friendly_date(record.get('due_date')), '', record.get('summary') or 'Saved school notice:']
+        lines = ['Reminder for ' + str(record.get('due_date')), record.get('summary') or 'Saved school notice:']
         lines.extend('• ' + item for item in record.get('items', []))
         for section in record.get('sections', []):
             if section.get('chapter'):
@@ -594,7 +609,7 @@ class Octo:
         lines.extend('Instruction: ' + item for item in record.get('instructions', []))
         if any(f['class_id'] == fact['class_id'] and f['extraction'].get('due_date') == record.get('due_date') and f['extraction'].get('school_day_status') == 'no_classes' for f in facts):
             lines.append('A no-classes notice also exists for this date. Please confirm with the teacher when these supplies are needed.')
-        lines.extend(['', '_Source · ' + source_line(fact['source']) + '_'])
+        lines.append('Source: [' + fact['source_id'] + ']')
         self.store.reply('reminder:' + row['id'], row['chat_id'], '\n'.join(lines))
         self.store.finish_reminder(row['id'], 'queued')
         return True
@@ -610,11 +625,6 @@ class Octo:
             if result is not None:
                 self.reply(sid, event, result, 'cart-action')
                 return
-        parent = self.menus.preferences(event, parent)
-        route = await self.menus.handle(sid, event, parent, text)
-        if route.handled:
-            return
-        text = route.text
         if self.roster.mentions_other_student(text, parent):
             self.reply(sid, event, 'I can only answer individual questions about students linked to your account. You can ask about class-wide notices here.')
             return
@@ -622,12 +632,10 @@ class Octo:
         named = [student for student in students if any(
             re.search(r'(?<!\w)' + re.escape(name) + r'(?!\w)', text, re.I)
             for name in [student['name'], *student.get('aliases', [])])]
-        if route.student_id:
-            students = [student for student in students if student['id'] == route.student_id]
-        elif named:
+        if named:
             students = named
         elif len(students) > 1:
-            self.menus.choose_child(sid, event, parent, text, students, menu_language(text, parent), route.links)
+            self.reply(sid, event, 'Which student do you mean: ' + ', '.join(s['name'] for s in students) + '? Please include the name in your question.')
             return
         facts = self.store.facts_for(parent, students)
         if not facts:
@@ -640,23 +648,30 @@ class Octo:
         if not answer.source_ids or any(s not in by_id for s in answer.source_ids):
             self.reply(sid, event, 'I could not verify an answer against the saved notices. Please ask again or ask the teacher to clarify.')
             return
-        cited_facts = [by_id[source_id] for source_id in dict.fromkeys(answer.source_ids)]
-        footer = self.menus.answer_menu(sid, event, parent, answer, cited_facts, students)
-        self.reply(sid, event, answer_text(answer.text, cited_facts, answer.language_code, requested_link_types(text, [*answer.requested_links, *route.links])) + footer)
-        if not event.is_group and not route.selected and answer.proposed_items and answer.cart_request_quote and answer.cart_request_quote.casefold() in text.casefold():
+        citations = []
+        for source_id in dict.fromkeys(answer.source_ids):
+            source = by_id[source_id]['source']
+            citations.append(f"{source['sender']}, {source['timestamp']} [{source_id}]")
+            document = source.get('document') or {}
+            if document.get('url'):
+                citations.append('Document: ' + document['url'])
+            calendar = source.get('calendar') or {}
+            if calendar.get('status') == 'synced' and calendar.get('url'):
+                citations.append('Calendar: ' + calendar['url'])
+        self.reply(sid, event, answer.text + '\n\nSources:\n' + '\n'.join(citations))
+        if not event.is_group and answer.proposed_items and answer.cart_request_quote and answer.cart_request_quote.casefold() in text.casefold():
             from .cart import CartService
             self.reply(sid, event, CartService(self.store.db).propose(parent['id'], event.chat_id, answer.proposed_items), 'cart')
         # Text delivery is independent of TTS failure/latency.
-        await self.deliver_one(key=f'{sid}:answer')
-        if should_speak(event, parent):
+        await self.deliver_one()
+        if parent.get('voice_replies') or event.kind == 'voice':
             if self.settings.mode == 'offline':
                 self.reply(sid, event, 'Audio is skipped in offline mode; no Sarvam speech was generated.', 'audio-status')
                 return
             try:
                 speech = answer.spoken_text or answer.text
                 path = await self.ai.synthesize(speech, answer.language_code, self.media_dir / f'{sid}-answer.mp3')
-                self.store.reply(f'{sid}:audio', event.chat_id, '', kind='voice', path=str(path),
-                                 reply_to=event.message_id, reply_chat_id=event.chat_id)
+                self.store.reply(f'{sid}:audio', event.chat_id, '', kind='voice', path=str(path))
             except Exception:
                 self.reply(sid, event, 'The written answer is ready, but audio is unavailable right now.', 'audio-status')
 
@@ -729,14 +744,14 @@ class Octo:
             try:
                 result = await self.drive.file_pdf(Path(event.media.local_path), next(iter(subjects)), next(iter(chapters), None))
                 metadata.update(status='uploaded', url=result['url'], drive_id=result['id'],
-                                message='📄 *Notes filed in Google Drive*\n\n' + result['url'] + '\n\nAccess follows the folder’s sharing permissions.')
+                                message='Filed in Google Drive: ' + result['url'] + '\nThe link uses the demo folder’s existing permissions.')
             except DriveError as exc:
                 metadata.update(status='unconfirmed', message=str(exc))
         self.store.save_document(event.source_key, source_ids, metadata)
         self.reply(sid, event, metadata['message'], 'document')
 
-    async def deliver_one(self, *, key: str | None = None):
-        reply = self.store.next_reply(key)
+    async def deliver_one(self):
+        reply = self.store.next_reply()
         if not reply:
             return False
         await self.refresh_memberships()
@@ -748,7 +763,7 @@ class Octo:
             if reply['kind'] == 'voice':
                 remote = await self.transport.send_voice(reply['chat_id'], Path(reply['path']))
             else:
-                remote = await self.transport.send_text(reply['chat_id'], reply['text'], reply_to=reply['reply_to'])
+                remote = await self.transport.send_text(reply['chat_id'], reply['text'])
             if self.settings.mode == 'live' and not remote:
                 raise ValueError('WhatsApp did not return a message ID.')
             self.store.delivery(reply['id'], 'fixture' if self.settings.mode == 'offline' else 'sent', remote_id=remote)
@@ -756,24 +771,13 @@ class Octo:
             self.store.delivery(reply['id'], 'uncertain', error='Delivery was not confirmed; check WhatsApp before resending.')
             if reply['kind'] == 'voice':
                 self.store.reply(reply['dedupe_key'] + ':delivery-status', reply['chat_id'],
-                                 'The written answer is ready, but audio delivery was not confirmed. Please check the chat before retrying.',
-                                 reply_to=reply['reply_to'], reply_chat_id=reply['reply_chat_id'])
+                                 'The written answer is ready, but audio delivery was not confirmed. Please check the chat before retrying.')
         return True
 
     def _delivery_allowed(self, reply):
-        if reply.get('reply_to') and reply.get('reply_chat_id') != reply['chat_id']:
-            return False
         # Re-check at send time too: a queued response can outlive a roster edit.
         if reply['chat_id'] not in self.roster.data['groups'] and not self.roster.member_scope([reply['chat_id']])[0]:
             return False
-        if reply['dedupe_key'].startswith('join:'):
-            return self.onboarding.delivery_allowed(reply)
-        if ':calendar-error:' in reply['dedupe_key']:
-            source_id, calendar_id = reply['dedupe_key'].split(':calendar-error:', 1)
-            job = self.store.db.execute('SELECT status FROM calendar_jobs WHERE source_id=? AND calendar_id=?',
-                                        (source_id, calendar_id)).fetchone()
-            if calendar_id != self.settings.calendar_id or not job or job['status'] != 'failed':
-                return False
         if ':calendar:' in reply['dedupe_key']:
             source_id, calendar_id = reply['dedupe_key'].split(':calendar:', 1)
             if calendar_id != self.settings.calendar_id or self.store.db.execute('SELECT 1 FROM fact_replacements WHERE old_source_id=?', (source_id,)).fetchone():
@@ -795,10 +799,7 @@ class Octo:
             return bool(fact and fact['extraction'].get('status', 'active') == 'active' and (fact['extraction'].get('due_date') or '') >= today)
         row = self.store.db.execute('SELECT event,context FROM inbox WHERE source_id=?', (reply['dedupe_key'].split(':')[0],)).fetchone()
         if row:
-            event = IncomingMessage.model_validate_json(row['event'])
-            if reply['chat_id'] != event.chat_id or (reply.get('reply_to') and reply['reply_to'] != event.message_id):
-                return False
-            caller = self.roster.resolve(event)
+            caller = self.roster.resolve(IncomingMessage.model_validate_json(row['event']))
             if not caller:
                 return False
             before = json.loads(row['context'])
@@ -815,7 +816,7 @@ class Octo:
         return reply['chat_id'] in self.roster.data['groups'] or any(reply['chat_id'] in p['whatsapp_ids'] for p in self.roster.data['parents'])
 
     async def tick(self) -> bool:
-        work = await self.onboarding.process_one()
+        work = False
         row = self.store.next_message()
         if row:
             await self.process(row)

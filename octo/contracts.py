@@ -82,8 +82,6 @@ class GroundedAnswer(BaseModel):
     spoken_text: str | None = None
     proposed_items: list[str] = Field(default_factory=list,
                                       description='Catalogue item names only when the parent explicitly asks to prepare a simulated cart. This never approves or buys anything.')
-    requested_links: list[Literal["calendar", "document"]] = Field(default_factory=list,
-        description="Only when the CURRENT question asks to open/find a document or calendar entry. Otherwise empty. The app supplies verified links.")
     cart_request_quote: str | None = Field(default=None,
         description='Exact words from the CURRENT parent question requesting shopping/cart preparation, otherwise null. A question about what to bring is not a shopping request.')
 

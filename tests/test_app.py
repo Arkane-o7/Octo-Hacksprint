@@ -139,7 +139,7 @@ async def test_full_signed_text_photo_voice_flow_with_real_adapters(tmp_path):
             assert len(voice) == 1 and voice[0]['convert'] is True
             assert voice[0]['chatId'] == '919000000002@c.us'
             assert voice[0]['file']['mimetype'] == 'audio/mpeg'
-            assert any('*स्रोत*' in data.get('text', '') for _, data in outgoing)
+            assert any('Sources:' in data.get('text', '') for _, data in outgoing)
             assert all(r['status'] == 'sent' for r in app.state.octo.store.replies())
 
 
@@ -229,42 +229,6 @@ async def test_offline_http_cannot_accept_live_whatsapp_events(tmp_path):
         health = (await client.get('/health')).json()
         assert health['mode'] == 'offline' and health['external_integrations_verified'] is False
         assert (await send(client, envelope('T1'))).status_code == 409
-
-
-async def test_membership_outage_retries_original_message_once_without_stale_access(tmp_path, monkeypatch):
-    from types import SimpleNamespace
-    import time
-    clock = [100.0]
-    monkeypatch.setattr('octo.core.time', SimpleNamespace(monotonic=lambda: clock[0], time=time.time))
-
-    class CountingTransport(MemberTransport):
-        lookups = 0
-
-        async def group_members(self, group_id):
-            self.lookups += 1
-            return await super().group_members(group_id)
-
-    transport = CountingTransport()
-    app = create_app(live_config(tmp_path), ai=OfflineAI(), transport=transport, worker=False)
-    async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://app') as client:
-        core = app.state.octo
-        await core.refresh_memberships()
-        transport.membership_error = True
-        event = envelope('RETRY-MENU', parent=True, body='menu')
-        assert (await send(client, event)).status_code == 503
-        assert all(not members for members in core.roster.memberships.values())
-        for _ in range(3):
-            assert (await send(client, event)).status_code == 503
-        assert transport.lookups == 2  # No repeated network calls during the outage cooldown.
-        assert core.store.counts()['inbox'] == 0 and not transport.sent
-
-        transport.membership_error = False
-        clock[0] += 31
-        assert (await send(client, event)).json()['status'] == 'queued'
-        assert (await send(client, event)).json()['status'] == 'duplicate'
-        await drain(core)
-        assert core.store.counts()['inbox'] == 1
-        assert len(transport.sent) == 1
 
 
 async def test_background_worker_processes_signed_message_without_manual_tick(tmp_path):

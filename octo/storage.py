@@ -56,11 +56,6 @@ class Store:
                 PRIMARY KEY(source_id,calendar_id)
             );
         """)
-        # Existing queues remain readable; historical replies have no quote.
-        columns = {row[1] for row in self.db.execute('PRAGMA table_info(outbox)')}
-        for column in ('reply_to', 'reply_chat_id'):
-            if column not in columns:
-                self.db.execute(f'ALTER TABLE outbox ADD COLUMN {column} TEXT')
         keys = [row[1] for row in self.db.execute('PRAGMA table_info(fact_replacements)') if row[5]]
         if keys == ['old_source_id']:
             self.db.executescript('''
@@ -247,16 +242,12 @@ class Store:
                 results.append(fact)
         return results
 
-    def reply(self, key: str, chat: str, text: str, *, kind='text', path: str | None = None,
-              reply_to: str | None = None, reply_chat_id: str | None = None):
-        if reply_to and reply_chat_id != chat:
-            raise ValueError('A reply quote must belong to the destination chat.')
+    def reply(self, key: str, chat: str, text: str, *, kind='text', path: str | None = None):
         with self.db:
-            self.db.execute("INSERT OR IGNORE INTO outbox(dedupe_key,chat_id,text,kind,path,reply_to,reply_chat_id) VALUES(?,?,?,?,?,?,?)",
-                            (key, chat, text, kind, path, reply_to, reply_chat_id))
+            self.db.execute("INSERT OR IGNORE INTO outbox(dedupe_key,chat_id,text,kind,path) VALUES(?,?,?,?,?)", (key, chat, text, kind, path))
 
-    def next_reply(self, key: str | None = None):
-        row = self.db.execute("SELECT * FROM outbox WHERE status='pending' AND (? IS NULL OR dedupe_key=?) ORDER BY id LIMIT 1", (key, key)).fetchone()
+    def next_reply(self):
+        row = self.db.execute("SELECT * FROM outbox WHERE status='pending' ORDER BY id LIMIT 1").fetchone()
         return dict(row) if row else None
 
     def delivery(self, reply_id: int, status: str, remote_id=None, error=None):

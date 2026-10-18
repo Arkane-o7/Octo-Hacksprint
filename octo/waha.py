@@ -273,7 +273,7 @@ class WahaClient:
                 boundary = max(remaining.rfind("\n", 0, cut), remaining.rfind(" ", 0, cut))
                 if boundary > cut // 2:
                     cut = boundary + 1
-            body = {"session": self.session, "chatId": _jid(chat_id), "text": remaining[:cut], "linkPreview": False}
+            body = {"session": self.session, "chatId": _jid(chat_id), "text": remaining[:cut]}
             if first and reply_to:
                 body["reply_to"] = reply_to
             last_id = await self._post("/api/sendText", body)
