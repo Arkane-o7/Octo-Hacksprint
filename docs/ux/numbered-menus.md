@@ -25,6 +25,13 @@ See the [WAHA list-message contract](https://waha.devlike.pro/docs/how-to/send-m
 endpoint instead of the list picker. This is a handset compatibility experiment,
 not a guarantee: WhatsApp may accept the send without displaying the buttons.
 Button replies use the same scoped option IDs and validation as list replies.
+On 18 October, the operator confirmed the list picker opens; a real Main →
+Settings selection was processed and its reply sent. The operator disliked the
+modal list UI. Inline mode was then enabled, but the operator reported no visible
+reply. No fresh input was recorded after that switch, so this does not distinguish
+message ingress from button-rendering failure. Inline rendering remains unverified.
+The running demo was returned to numbered text menus. All **434 local tests** pass;
+they do not establish native-button support on the handset.
 The tappable-menu change passes **426 tests**, including 21 new normalization,
 selection, isolation, fallback and uncertain-delivery checks. Tests use synthetic
 adapters; actual list rendering still requires a handset check.
