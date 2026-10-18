@@ -8,6 +8,7 @@ import pytest
 from octo.contracts import Extraction, GroundedAnswer
 from octo.conversation import CONTEXT_LIMIT, Conversation
 from octo.core import Octo
+from octo.sarvam import SarvamClient
 from octo.storage import Store
 from octo.waha import normalize
 from test_core import SpyAI, notice, octo, output, put, question
@@ -174,7 +175,7 @@ async def test_changed_or_inaccessible_school_facts_invalidate_old_answer(octo, 
     assert not octo.conversation.delivery_allowed(dict(answer_row(octo, first)), octo.roster.resolve(first))
 
 
-async def test_legacy_reply_uses_current_sources_without_replaying_old_answer(octo):
+async def test_legacy_reply_supplies_selected_text_as_historical_reference(octo):
     await put(octo, notice())
     first = question('LEGACY')
     await put(octo, first)
@@ -184,7 +185,74 @@ async def test_legacy_reply_uses_current_sources_without_replaying_old_answer(oc
     quoted = context(octo, question('NEXT', quoted_message_id=token))['quoted']
     assert quoted['kind'] == 'assistant_reference'
     assert quoted['previous_question'] == first.text
-    assert 'text' not in quoted
+    assert 'Synthetic answer for Aarav' in quoted['text']
+    assert 'Sources:' not in quoted['text']
+    assert quoted['timestamp'] == first.timestamp.isoformat()
+    assert quoted['source_versions_verified'] is False
+
+
+@pytest.mark.parametrize('change', ['updated', 'replaced', 'private'])
+async def test_legacy_quote_requires_current_access_and_marks_unknown_versions(octo, change):
+    await put(octo, notice())
+    first = question('LEGACY')
+    await put(octo, first)
+    token = quoteable(octo, first)
+    with octo.store.db:
+        octo.store.db.execute('DELETE FROM chat_answers')
+        sid = octo.store.db.execute('SELECT source_id FROM facts').fetchone()[0]
+        if change == 'updated':
+            record = json.loads(octo.store.db.execute('SELECT extraction FROM facts').fetchone()[0])
+            record['items'] = ['pencils']
+            octo.store.db.execute('UPDATE facts SET extraction=?', (json.dumps(record),))
+        elif change == 'replaced':
+            octo.store.db.execute('INSERT INTO fact_replacements VALUES(?,?)', (sid, 'replacement'))
+        else:
+            octo.store.db.execute("UPDATE facts SET student_id='meera'")
+    quoted = context(octo, question('NEXT', quoted_message_id=token))['quoted']
+    if change == 'updated':
+        assert quoted['source_versions_verified'] is False
+        assert 'Synthetic answer for Aarav' in quoted['text']
+    else:
+        assert quoted is None
+
+
+async def test_legacy_quote_reaches_model_with_text_despite_unrelated_recent_memory(octo):
+    await put(octo, notice())
+    first = question('LEGACY', text='What should Aarav bring?')
+    octo.ai.answer_override = GroundedAnswer(language_code='en-IN', text='Bring crayons and a drawing book.',
+        source_ids=[octo.store.db.execute('SELECT source_id FROM facts').fetchone()[0]])
+    await put(octo, first)
+    token = quoteable(octo, first)
+    with octo.store.db:
+        octo.store.db.execute('DELETE FROM chat_answers')
+    octo.ai.answer_override = GroundedAnswer(basis='conversation', language_code='en-IN',
+                                           text='Noted.', context_ids=['current'])
+    await put(octo, question('PERSONAL', text='My pickup time is 4 pm.'))
+    seen = []
+
+    def handler(request):
+        payload = json.loads(request.content)
+        data = json.loads(payload['messages'][1]['content'])
+        prompt = data['question']
+        selected = json.loads(prompt.split('\n', 1)[1].split('\nCURRENT_REQUEST:\n', 1)[0])['quoted']
+        assert selected['text'].endswith('Bring crayons and a drawing book.')
+        assert selected['previous_question'] == first.text
+        assert selected['source_versions_verified'] is False
+        assert prompt.endswith('Parent question: explain it in 2 lines')
+        assert 'My pickup time is 4 pm.' in prompt
+        assert 'referent is quoted.text' in payload['messages'][0]['content']
+        seen.append(selected)
+        return httpx.Response(200, json={'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps({
+            'language_code': 'en-IN', 'basis': 'school', 'text': 'Bring crayons.\nBring a drawing book.',
+            'source_ids': selected['source_ids'], 'context_ids': [selected['id']],
+        })}}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        octo.ai = SarvamClient('test-key-not-live', client=client)
+        followup = question('QUOTE', text='explain it in 2 lines', quoted_message_id=token, is_quoted=True)
+        await put(octo, followup)
+    assert len(seen) == 1
+    assert 'Bring crayons.\nBring a drawing book.\n\nSources:' in answer_row(octo, followup)['text']
 
 
 async def test_unknown_or_cross_chat_quote_requests_clarification_without_model(octo):

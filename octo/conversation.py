@@ -95,20 +95,24 @@ class Conversation:
                 'timestamp': event.timestamp.isoformat(), 'text': text[:TEXT_LIMIT]}
 
     def _answer_entry(self, row, reply, facts):
+        timestamp = IncomingMessage.model_validate_json(row['event']).timestamp.isoformat()
         saved = self.db.execute('SELECT * FROM chat_answers WHERE source_id=?', (row['source_id'],)).fetchone()
         if saved:
             if not self._valid_answer(saved, facts):
                 return None
             return {'id': 'reply:' + str(reply['id']), 'kind': 'assistant_reply',
-                    'basis': saved['basis'],
+                    'basis': saved['basis'], 'timestamp': timestamp,
                     'text': saved['text'][:TEXT_LIMIT], 'source_ids': json.loads(saved['source_ids']),
                     'student_ids': json.loads(saved['student_ids'])}
-        # Old replies have no source-version metadata. Use their original
-        # question and still-authorized citations, never replay the old answer.
+        # Legacy replies still need their actual text to resolve "explain this".
+        # All citations must remain accessible, but their versions are unknown:
+        # the text identifies the historical message, not current school truth.
         ids = list(dict.fromkeys(re.findall(r'\[([0-9a-f]{16}(?:-\d+)?)\]', reply['text'])))
         if not ids or any(sid not in facts for sid in ids):
             return None
         return {'id': 'reply:' + str(reply['id']), 'kind': 'assistant_reference',
+                'timestamp': timestamp, 'source_versions_verified': False,
+                'text': reply['text'].split('\n\nSources:\n', 1)[0][:TEXT_LIMIT],
                 'previous_question': self._user_entry(row)['text'], 'source_ids': ids}
 
     def build(self, event, person, facts, text):

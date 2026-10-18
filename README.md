@@ -84,9 +84,12 @@ Conversation context now accompanies each question: up to the last 12 nonempty e
 from the same parent, chat, session and current access scope, persisted in the
 encrypted database across restarts. Reply to a saved message in WhatsApp and ask
 about it to select that message explicitly. Known teacher notices use only the
-facts the caller can currently access; old assistant answers are omitted if their
-sources changed. Unknown or inaccessible quotes ask for clarification. Embedded
-quote text is never trusted as a permission grant or a teacher notice.
+facts the caller can currently access; versioned assistant answers are omitted if
+their sources changed. Replies saved before conversation memory include their actual
+text as historical reference when all their citations are still accessible; current
+school facts take precedence over that older wording. Unknown or inaccessible quotes
+ask for clarification. Embedded quote text is never trusted as a permission grant
+or a teacher notice.
 
 This is bounded conversation memory, not unlimited permanent recall. Earlier
 user-provided details can be recalled as "you told me", separately from verified
