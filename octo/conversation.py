@@ -35,6 +35,12 @@ def message_token(value, chats):
     return value
 
 
+def chat_aliases(event):
+    # Only transport-verified aliases of this account may identify the same DM.
+    # Other numbers assigned to a roster parent are still separate conversations.
+    return {_jid(event.chat_id), *(_jid(x) for x in event.sender_aliases if not event.is_group)}
+
+
 class Conversation:
     def __init__(self, app):
         self.app = app
@@ -70,10 +76,12 @@ class Conversation:
     def _rows(self, event, person):
         # Filter in SQL before imposing a limit so other chats cannot evict this
         # parent's history. JSON is existing encrypted inbox data, not SQL input.
+        chats = sorted(chat_aliases(event))
         return self.db.execute('''SELECT * FROM inbox WHERE status='done'
-            AND json_extract(event,'$.session')=? AND json_extract(event,'$.chat_id')=?
+            AND json_extract(event,'$.session')=? AND json_extract(event,'$.chat_id') IN ('''
+            + ','.join('?' for _ in chats) + ''')
             AND json_extract(context,'$.id')=? ORDER BY created DESC, rowid DESC''',
-            (event.session, event.chat_id, person['id']))
+            (event.session, *chats, person['id']))
 
     def _eligible(self, row, event, person):
         previous = IncomingMessage.model_validate_json(row['event'])
@@ -134,7 +142,7 @@ class Conversation:
         return result
 
     def _quote(self, event, person, facts):
-        chats = {_jid(event.chat_id), *(_jid(x) for x in event.sender_aliases if not event.is_group)}
+        chats = chat_aliases(event)
         if event.quoted_chat_id and _jid(event.quoted_chat_id) not in chats:
             return None
         wanted = message_token(event.quoted_message_id, chats)
@@ -149,9 +157,9 @@ class Conversation:
                 entry = self._user_entry(row)
                 if entry['text']:
                     matches.append(entry)
-            for reply in self.db.execute("SELECT * FROM outbox WHERE dedupe_key LIKE ? AND chat_id=? AND kind='text' AND status IN ('sent','fixture')",
-                                         (row['source_id'] + ':%', event.chat_id)):
-                if message_token(reply['remote_id'], chats) == wanted:
+            for reply in self.db.execute("SELECT * FROM outbox WHERE dedupe_key LIKE ? AND kind='text' AND status IN ('sent','fixture')",
+                                         (row['source_id'] + ':%',)):
+                if _jid(reply['chat_id']) in chats and message_token(reply['remote_id'], chats) == wanted:
                     # Only the actual answer is referenceable as an answer;
                     # acknowledgements/cart notices do not inherit its metadata.
                     if reply['dedupe_key'] == row['source_id'] + ':answer':

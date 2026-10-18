@@ -65,6 +65,23 @@ async def test_quote_bot_reply_resolves_raw_or_serialized_id(octo, serialized):
     assert len(octo.ai.answer_calls) == 2
 
 
+async def test_transport_alias_keeps_same_dm_context_without_merging_other_numbers(octo):
+    await put(octo, notice())
+    first = question('FIRST')
+    await put(octo, first)
+    token = quoteable(octo, first)
+    parent = octo.roster.resolve(first)
+    event = question('LID', chat_id='777@lid', quoted_message_id=token,
+                     sender_aliases=['demo-parent-a'])
+    data = context(octo, event, parent)
+    assert data['history'][0]['text'] == first.text
+    assert data['quoted']['kind'] == 'assistant_reply'
+    # Merely sharing the parent's roster identity does not merge distinct DMs.
+    event.sender_aliases = []
+    assert context(octo, event, parent)['history'] == []
+    assert context(octo, event, parent)['quoted'] is None
+
+
 async def test_quote_own_message_and_personal_memory_survive_restart(octo):
     first = question('PERSONAL', text='My pickup time is 4 pm.')
     octo.ai.answer_override = GroundedAnswer(basis='conversation', language_code='en-IN',
