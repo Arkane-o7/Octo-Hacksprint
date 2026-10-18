@@ -74,7 +74,7 @@ async def test_unlinked_parent_receives_only_shared_class_facts(octo):
     assert names == ['Class 5B']
     assert len(facts) == 1 and facts[0]['extraction']['items'] == ['crayons', 'a drawing book']
     replies = [r for r in octo.store.replies() if r['chat_id'] == event.chat_id]
-    assert any('Sources:' in r['text'] and r['status'] == 'fixture' for r in replies)
+    assert any('*Sources*' in r['text'] and r['status'] == 'fixture' for r in replies)
     assert all('PRIVATE_' not in r['text'] and 'OTHER_CLASS' not in r['text'] for r in replies)
 
 
@@ -104,7 +104,7 @@ async def test_new_parent_voice_uses_question_flow(octo):
     await put(octo, event)
     assert octo.store.message(event.source_key)['status'] == 'done'
     assert octo.ai.answer_calls[-1][1] == ['Class 5B']
-    assert any(r['chat_id'] == event.chat_id and 'Sources:' in r['text'] for r in octo.store.replies())
+    assert any(r['chat_id'] == event.chat_id and '*Sources*' in r['text'] for r in octo.store.replies())
 
 
 async def test_parent_cannot_claim_linked_identity_in_text(octo):

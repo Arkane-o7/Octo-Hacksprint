@@ -73,15 +73,15 @@ def _money(paise: int) -> str:
 
 
 def _render(quote: dict, code: str) -> str:
-    lines = [LABEL, f"Demo stationery cart — version {quote['version']}"]
+    lines = [LABEL, "", f"🛒 *Stationery cart* · version {quote['version']}", ""]
     lines.extend(
         f"• {item['name']} × {item['quantity']} — {_money(item['unit_price_paise'] * item['quantity'])}"
         for item in quote["items"]
     )
     lines.extend([
-        f"Total: {_money(quote['total_paise'])}",
-        "Fixed demo prices; no merchant connection. One of each listed item.",
-        "Code expires in 10 minutes. Reply in this parent chat:",
+        "", f"*Total: {_money(quote['total_paise'])}*", "",
+        "Fixed demo prices; no merchant connection.", "",
+        "*Reply with one action* · expires in 10 minutes",
         f"APPROVE {code}", f"CANCEL {code}",
         f"CHANGE {code} crayons, drawing book",
     ])

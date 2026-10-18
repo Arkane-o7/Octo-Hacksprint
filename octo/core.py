@@ -15,6 +15,7 @@ from .config import Settings
 from .contracts import Extraction, IncomingMessage, NoticeDecision
 from .storage import Store
 from .sarvam import SarvamError
+from .presentation import saved_notice, answer_text, calendar_saved, error_message, source_line, friendly_date, requested_link_types
 
 logger = logging.getLogger(__name__)
 OFFLINE = "[OFFLINE DEMO — synthetic fixture responses; no live delivery]\n"
@@ -251,7 +252,7 @@ class Octo:
                     path = await self._media(sid, event)
                     if event.kind == 'document' and (path.suffix.lower() != '.pdf' or not path.read_bytes().startswith(b'%PDF-')):
                         raise ValueError('Please send a PDF document, or a JPEG/PNG board photo.')
-                    self.reply(sid, event, 'Reading the PDF…' if event.kind == 'document' else 'Reading the photo…', 'ack')
+                    self.reply(sid, event, '📄 Reading your PDF…' if event.kind == 'document' else '📷 Reading your photo…', 'ack')
                     # Keep the acknowledgement ahead of a potentially slow submission.
                     await self.deliver_one()
                     job_id = row.get('job_id') or await self.ai.submit_document(path)
@@ -283,14 +284,14 @@ class Octo:
         if len(safe) > 250:
             safe = 'The service could not finish that request. Please try again shortly.'
         self.store.update(row['source_id'], status='failed', error=type(exc).__name__)
-        self.reply(row['source_id'], event, safe, 'error')
+        self.reply(row['source_id'], event, error_message(safe), 'error')
 
     async def _save_extraction(self, sid: str, event: IncomingMessage, caller: dict, result: Extraction):
         if result.kind == 'unknown' or (result.kind != 'school_day' and not (result.items or result.sections)):
             if event.kind in ('image', 'document'):
                 self.reply(sid, event, 'I could not identify school requirements, syllabus topics or lesson notes in this attachment. Please send the actual school notice or a clearer photo of the notes; nothing was saved.')
             else:
-                self.reply(sid, event, 'I have not saved this notice. I can save supplies, syllabus topics, or a dated whole-class holiday/class-day notice. Specific lesson, test or practice changes are not supported yet.')
+                self.reply(sid, event, '*Notice not saved*\n\nI can save supplies, study topics and class-day notices.\n\nSpecific lesson, test or practice changes are not supported yet.')
             return
         if result.class_as_written:
             normalize = lambda x: re.sub(r'[^a-z0-9]', '', x.lower().replace('class', '').replace('grade', ''))
@@ -334,24 +335,9 @@ class Octo:
             result.unclear.append('When should students bring these items?')
         self.store.save_fact(sid, caller, result, event)
         self.queue_calendar_sync()
-        lines = [f"Saved for Class {caller['class_id']}" + (f" — {result.subject}" if result.subject else '')]
-        if self._schedule_reminders(sid, result, event.timestamp):
-            lines.append('Parent reminder scheduled.')
-        if result.due_date:
-            lines.append(f'Date: {result.due_date}')
-        if result.kind == 'school_day':
-            lines.append('No classes.' if result.school_day_status == 'no_classes' else 'Classes as usual.')
-        lines.extend('• ' + item for item in result.items)
-        for section in result.sections:
-            if section.chapter:
-                lines.append(section.chapter)
-            lines.extend('☐ ' + topic for topic in section.topics)
-            if section.pages:
-                lines.append('Pages: ' + section.pages)
-        lines.extend('Instruction: ' + item for item in result.instructions)
-        lines.extend('Please clarify: ' + item for item in dict.fromkeys(result.unclear))
-        lines.append(f"Source: {caller['name']}, {event.timestamp.astimezone(ZoneInfo('Asia/Kolkata')).strftime('%d %b %H:%M')} [{sid}]")
-        self.reply(sid, event, '\n'.join(lines))
+        reminder = self._schedule_reminders(sid, result, event.timestamp)
+        source = {'sender': caller['name'], 'timestamp': event.timestamp.isoformat()}
+        self.reply(sid, event, saved_notice(result, caller['class_id'], source, reminder=reminder))
 
     async def _understand(self, sid, event, caller, text, *, ocr_text=None):
         applied = self.store.applied_decision(event.source_key)
@@ -457,29 +443,13 @@ class Octo:
         self.queue_calendar_sync()
         validated = [(sid if index == 0 else f'{sid}-{index + 1}', record) for index, record in enumerate(decision.records)]
         if validated:
-            lines = [f"Saved for Class {caller['class_id']}"]
-            for source_id, record in validated:
-                if record.summary:
-                    lines.append(record.summary)
-                if record.status != 'active':
-                    lines.append('Status: ' + record.status)
-                if record.due_date:
-                    lines.append('Date: ' + record.due_date)
-                lines.extend('• ' + item for item in record.items)
-                for section in record.sections:
-                    if section.chapter:
-                        lines.append(section.chapter)
-                    lines.extend('☐ ' + topic for topic in section.topics)
-                    if section.pages:
-                        lines.append('Pages: ' + section.pages)
-                lines.extend('Instruction: ' + instruction for instruction in record.instructions)
-                lines.extend('Please clarify: ' + unclear for unclear in record.unclear)
-                if self._schedule_reminders(source_id, record, event.timestamp):
-                    lines.append('Parent reminder scheduled.')
-                lines.append(f"Source: {caller['name']}, {event.timestamp.astimezone(ZoneInfo('Asia/Kolkata')).strftime('%d %b %H:%M')} [{source_id}]")
+            source = {'sender': caller['name'], 'timestamp': event.timestamp.isoformat()}
+            blocks = [saved_notice(record, caller['class_id'], source,
+                       reminder=self._schedule_reminders(source_id, record, event.timestamp))
+                      for source_id, record in validated]
             if decision.reply:
-                lines.append(decision.reply)
-            self.reply(sid, event, '\n'.join(lines))
+                blocks.append(decision.reply)
+            self.reply(sid, event, '\n\n'.join(blocks))
         elif decision.reply:
             reply = decision.reply
             if decision.source_ids:
@@ -539,7 +509,7 @@ class Octo:
                     chat = fact['source'].get('chat_id')
                     if chat in self.roster.data['groups']:
                         self.store.reply(f"{job['source_id']}:calendar:{job['calendar_id']}", chat,
-                            'Added to the demo Google Calendar (all-day): ' + result['url'])
+                            calendar_saved(fact['extraction'], fact['class_id']))
             except Exception:
                 attempts = job['attempts'] + 1
                 with self.store.db:
@@ -591,7 +561,7 @@ class Octo:
             return True
         # Send the saved requirement as a reminder, not a fresh assertion that
         # a conflicting school-day notice has been resolved.
-        lines = ['Reminder for ' + str(record.get('due_date')), record.get('summary') or 'Saved school notice:']
+        lines = ['⏰ *School reminder*', friendly_date(record.get('due_date')), '', record.get('summary') or 'Saved school notice:']
         lines.extend('• ' + item for item in record.get('items', []))
         for section in record.get('sections', []):
             if section.get('chapter'):
@@ -600,7 +570,7 @@ class Octo:
         lines.extend('Instruction: ' + item for item in record.get('instructions', []))
         if any(f['class_id'] == fact['class_id'] and f['extraction'].get('due_date') == record.get('due_date') and f['extraction'].get('school_day_status') == 'no_classes' for f in facts):
             lines.append('A no-classes notice also exists for this date. Please confirm with the teacher when these supplies are needed.')
-        lines.append('Source: [' + fact['source_id'] + ']')
+        lines.extend(['', '_Source · ' + source_line(fact['source']) + '_'])
         self.store.reply('reminder:' + row['id'], row['chat_id'], '\n'.join(lines))
         self.store.finish_reminder(row['id'], 'queued')
         return True
@@ -639,17 +609,8 @@ class Octo:
         if not answer.source_ids or any(s not in by_id for s in answer.source_ids):
             self.reply(sid, event, 'I could not verify an answer against the saved notices. Please ask again or ask the teacher to clarify.')
             return
-        citations = []
-        for source_id in dict.fromkeys(answer.source_ids):
-            source = by_id[source_id]['source']
-            citations.append(f"{source['sender']}, {source['timestamp']} [{source_id}]")
-            document = source.get('document') or {}
-            if document.get('url'):
-                citations.append('Document: ' + document['url'])
-            calendar = source.get('calendar') or {}
-            if calendar.get('status') == 'synced' and calendar.get('url'):
-                citations.append('Calendar: ' + calendar['url'])
-        self.reply(sid, event, answer.text + '\n\nSources:\n' + '\n'.join(citations))
+        cited_facts = [by_id[source_id] for source_id in dict.fromkeys(answer.source_ids)]
+        self.reply(sid, event, answer_text(answer.text, cited_facts, answer.language_code, requested_link_types(text, answer.requested_links)))
         if not event.is_group and answer.proposed_items and answer.cart_request_quote and answer.cart_request_quote.casefold() in text.casefold():
             from .cart import CartService
             self.reply(sid, event, CartService(self.store.db).propose(parent['id'], event.chat_id, answer.proposed_items), 'cart')
@@ -735,7 +696,7 @@ class Octo:
             try:
                 result = await self.drive.file_pdf(Path(event.media.local_path), next(iter(subjects)), next(iter(chapters), None))
                 metadata.update(status='uploaded', url=result['url'], drive_id=result['id'],
-                                message='Filed in Google Drive: ' + result['url'] + '\nThe link uses the demo folder’s existing permissions.')
+                                message='📄 *Notes filed in Google Drive*\n\n' + result['url'] + '\n\nAccess follows the folder’s sharing permissions.')
             except DriveError as exc:
                 metadata.update(status='unconfirmed', message=str(exc))
         self.store.save_document(event.source_key, source_ids, metadata)

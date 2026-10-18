@@ -274,3 +274,12 @@ Live mode requires `OCTO_DB_KEY` (64 random hexadecimal characters) in the ignor
 local `.env`. Existing databases must be migrated with the worker stopped before
 restarting. Follow [database encryption setup](DATABASE_ENCRYPTION.md); preserve
 the key separately so backups remain recoverable. Offline fixtures stay plaintext.
+
+### WhatsApp presentation
+
+Replies use native WhatsApp bold headings, short lists, readable dates and compact
+teacher/time references. Full source IDs remain in the encrypted database. Regular
+answers omit Calendar URLs; asking for a Calendar entry or document link includes
+the verified URL from authorized, cited records. Link previews are disabled to
+avoid the large sign-in banners. Teacher notices retain uncertainty and source
+instructions, and carts continue to say explicitly that checkout is simulated.

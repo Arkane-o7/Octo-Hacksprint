@@ -139,7 +139,7 @@ async def test_full_signed_text_photo_voice_flow_with_real_adapters(tmp_path):
             assert len(voice) == 1 and voice[0]['convert'] is True
             assert voice[0]['chatId'] == '919000000002@c.us'
             assert voice[0]['file']['mimetype'] == 'audio/mpeg'
-            assert any('Sources:' in data.get('text', '') for _, data in outgoing)
+            assert any('*स्रोत*' in data.get('text', '') for _, data in outgoing)
             assert all(r['status'] == 'sent' for r in app.state.octo.store.replies())
 
 
