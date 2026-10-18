@@ -57,7 +57,7 @@ async def test_calendar_sync_persists_real_adapter_metadata_and_deduplicates(app
     assert app.calendar.calls==[('upsert','source')]
     fact=app.store.class_facts('5B')[0]
     assert fact['source']['calendar']['status']=='synced'
-    assert 'all-day' in app.store.replies()[0]['text']
+    assert app.store.replies() == []
 
 
 async def test_missing_oauth_offline_unclear_private_past_and_undated_do_not_sync(app):
@@ -137,6 +137,8 @@ async def test_obsolete_calendar_success_is_not_delivered(app):
     event=save(app,'old')
     app.queue_calendar_sync()
     await app.calendar_one()
+    # Legacy queued success bubbles still receive the original stale-source guard.
+    app.store.reply('old:calendar:' + CALENDAR, event.chat_id, 'Legacy success')
     reply=app.store.next_reply()
     assert app._delivery_allowed(reply)
     record=Extraction(kind='requirement',items=['pencils'],due_date=FUTURE,replaces_source_ids=['old'])
@@ -150,7 +152,7 @@ async def test_saved_reply_is_delivered_before_calendar_network_work(app):
     app.queue_calendar_sync()
     app.store.reply('source:answer','demo-class-5b@g.us','Saved school notice')
     order=[]
-    async def send(*args):
+    async def send(*args, **kwargs):
         order.append('whatsapp')
         return 'message-id'
     original=app.calendar.sync_fact
@@ -161,3 +163,61 @@ async def test_saved_reply_is_delivered_before_calendar_network_work(app):
     app.calendar.sync_fact=sync
     await app.tick()
     assert order==['whatsapp','calendar']
+
+
+async def test_transient_calendar_failure_is_quiet_then_recovery_stays_quiet(app):
+    save(app)
+    app.calendar.fail = True
+    app.queue_calendar_sync()
+    await app.calendar_one()
+    job = app.store.db.execute('SELECT * FROM calendar_jobs').fetchone()
+    assert job['status'] == 'pending'
+    assert 'retry scheduled' in job['error']
+    assert not app.store.replies()
+    assert 'calendar' not in app.store.class_facts('5B')[0]['source']
+    app.calendar.fail = False
+    with app.store.db:
+        app.store.db.execute('UPDATE calendar_jobs SET next_attempt=0')
+    await app.calendar_one()
+    assert app.store.class_facts('5B')[0]['source']['calendar']['status'] == 'synced'
+    assert not app.store.replies()
+
+
+async def test_terminal_calendar_failure_notifies_once_and_stale_error_is_blocked(app):
+    event = save(app)
+    app.calendar.fail = True
+    app.queue_calendar_sync()
+    for _ in range(3):
+        with app.store.db:
+            app.store.db.execute('UPDATE calendar_jobs SET next_attempt=0')
+        await app.calendar_one()
+    app.queue_calendar_sync()
+    assert not await app.calendar_one()
+    replies = app.store.replies()
+    assert len(replies) == 1
+    assert 'Automatic retries have stopped' in replies[0]['text']
+    assert replies[0]['reply_to'] == event.message_id
+    assert app._delivery_allowed(replies[0])
+    app.store.calendar_result('source', CALENDAR, {'status': 'synced'})
+    assert not app._delivery_allowed(replies[0])
+
+
+async def test_notice_reply_bypasses_backlog_before_google(app):
+    event = save(app)
+    app.queue_calendar_sync()
+    app.store.reply('backlog', event.chat_id, 'Older reply')
+    app.reply('source', event, 'Saved school notice')
+    order = []
+    async def send(chat, text, reply_to=None):
+        order.append(text)
+        return 'synthetic-id'
+    original = app.calendar.sync_fact
+    async def sync(fact):
+        assert order == ['Saved school notice']
+        order.append('calendar')
+        return await original(fact)
+    app.transport.send_text = send
+    app.calendar.sync_fact = sync
+    await app.calendar_one()
+    assert order == ['Saved school notice', 'calendar']
+    assert app.store.next_reply()['dedupe_key'] == 'backlog'

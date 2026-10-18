@@ -16,8 +16,9 @@ from .contracts import Extraction, IncomingMessage, NoticeDecision
 from .storage import Store
 from .context_store import ContextStore
 from .conversation import FollowupIntent, date_only, date_uncertainty_only
+from .delivery import should_speak
 from .sarvam import SarvamError
-from .presentation import saved_notice, answer_text, calendar_saved, error_message, source_line, friendly_date, requested_link_types
+from .presentation import saved_notice, answer_text, error_message, source_line, friendly_date, requested_link_types
 
 logger = logging.getLogger(__name__)
 OFFLINE = "[OFFLINE DEMO — synthetic fixture responses; no live delivery]\n"
@@ -102,7 +103,7 @@ class Roster:
             person = {'id': 'parent-' + hashlib.sha256(identity.encode()).hexdigest()[:24],
                       'role': 'parent', 'name': 'Parent', 'student_ids': [],
                       'whatsapp_ids': sorted(aliases),
-                      'language': 'hi-IN', 'voice_replies': True}
+                      'language': 'hi-IN', 'voice_replies': False}
         if event.is_group:
             class_id = self.data['groups'].get(event.chat_id)
             if not class_id:
@@ -213,7 +214,8 @@ class Octo:
     def reply(self, sid: str, event: IncomingMessage, text: str, suffix='answer'):
         if self.settings.mode == 'offline':
             text = OFFLINE + text
-        self.store.reply(f'{sid}:{suffix}', event.chat_id, text)
+        self.store.reply(f'{sid}:{suffix}', event.chat_id, text,
+                         reply_to=event.message_id, reply_chat_id=event.chat_id)
 
     async def _media(self, sid: str, event: IncomingMessage) -> Path:
         if not event.media:
@@ -244,6 +246,8 @@ class Octo:
         try:
             text = row.get('transcript') or event.text
             if event.kind == 'voice' and not row.get('transcript'):
+                self.reply(sid, event, '🎙️ Processing your voice message…', 'voice-ack')
+                await self.deliver_one(key=f'{sid}:voice-ack')
                 path = await self._media(sid, event)
                 names = ([s['name'] for s in self.roster.permitted_students(caller)]
                          if caller['role'] == 'parent' else [s['name'] for s in self.roster.students.values() if s['class_id'] in caller['classes']])
@@ -556,25 +560,29 @@ class Octo:
                 if not fact['extraction'].get('due_date') or fact['extraction']['due_date'] < today or fact['extraction'].get('unclear'):
                     self.store.calendar_result(job['source_id'], job['calendar_id'], {'status': 'skipped'})
                     return True
+            # A backlog must not put slow Google work ahead of this notice's
+            # substantive saved reply (including records from one decision).
+            acknowledgements = self.store.db.execute(
+                "SELECT dedupe_key FROM outbox WHERE status='pending' AND chat_id=? AND reply_to=? AND dedupe_key LIKE '%:answer'",
+                (fact['source'].get('chat_id'), fact['source'].get('message_id'))).fetchall()
+            for acknowledgement in acknowledgements:
+                await self.deliver_one(key=acknowledgement['dedupe_key'])
             with self.store.db:
                 self.store.db.execute("UPDATE calendar_jobs SET status='syncing',attempts=attempts+1 WHERE source_id=? AND calendar_id=?", (job['source_id'],job['calendar_id']))
             try:
                 result = await self.calendar.delete_fact(job['source_id']) if operation == 'delete' else await self.calendar.sync_fact(fact)
                 self.store.calendar_result(job['source_id'], job['calendar_id'], result)
-                if result.get('url') and result.get('status') == 'synced':
-                    chat = fact['source'].get('chat_id')
-                    if chat in self.roster.data['groups']:
-                        self.store.reply(f"{job['source_id']}:calendar:{job['calendar_id']}", chat,
-                            calendar_saved(fact['extraction'], fact['class_id']))
             except Exception:
                 attempts = job['attempts'] + 1
                 with self.store.db:
                     self.store.db.execute("UPDATE calendar_jobs SET status=?,next_attempt=?,error=? WHERE source_id=? AND calendar_id=?",
                         ('failed' if attempts >= 3 else 'pending', time.time() + 30 * attempts,
-                         'Calendar sync unconfirmed; check OAuth and the demo calendar.', job['source_id'],job['calendar_id']))
+                         ('Calendar sync unconfirmed; retries exhausted. Check OAuth and the demo calendar.' if attempts >= 3
+                          else 'Calendar sync unconfirmed; retry scheduled.'), job['source_id'],job['calendar_id']))
                 if attempts >= 3 and fact['source'].get('chat_id') in self.roster.data['groups']:
                     self.store.reply(f"{job['source_id']}:calendar-error:{job['calendar_id']}", fact['source']['chat_id'],
-                        'The school record is saved, but Google Calendar synchronization is unconfirmed. Check the demo calendar and OAuth setup.')
+                        'The school record is saved, but Google Calendar synchronization is unconfirmed after three attempts. Automatic retries have stopped; check the demo calendar and OAuth setup.',
+                        reply_to=fact['source'].get('message_id'), reply_chat_id=fact['source']['chat_id'])
             return True
         return False
 
@@ -714,15 +722,16 @@ class Octo:
             from .cart import CartService
             self.reply(sid, event, CartService(self.store.db).propose(parent['id'], event.chat_id, answer.proposed_items), 'cart')
         # Text delivery is independent of TTS failure/latency.
-        await self.deliver_one()
-        if parent.get('voice_replies') or event.kind == 'voice':
+        await self.deliver_one(key=f'{sid}:answer')
+        if should_speak(event, parent):
             if self.settings.mode == 'offline':
                 self.reply(sid, event, 'Audio is skipped in offline mode; no Sarvam speech was generated.', 'audio-status')
                 return
             try:
                 speech = answer.spoken_text or answer.text
                 path = await self.ai.synthesize(speech, answer.language_code, self.media_dir / f'{sid}-answer.mp3')
-                self.store.reply(f'{sid}:audio', event.chat_id, '', kind='voice', path=str(path))
+                self.store.reply(f'{sid}:audio', event.chat_id, '', kind='voice', path=str(path),
+                                 reply_to=event.message_id, reply_chat_id=event.chat_id)
             except Exception:
                 self.reply(sid, event, 'The written answer is ready, but audio is unavailable right now.', 'audio-status')
 
@@ -801,8 +810,8 @@ class Octo:
         self.store.save_document(event.source_key, source_ids, metadata)
         self.reply(sid, event, metadata['message'], 'document')
 
-    async def deliver_one(self):
-        reply = self.store.next_reply()
+    async def deliver_one(self, *, key: str | None = None):
+        reply = self.store.next_reply(key)
         if not reply:
             return False
         await self.refresh_memberships()
@@ -814,7 +823,7 @@ class Octo:
             if reply['kind'] == 'voice':
                 remote = await self.transport.send_voice(reply['chat_id'], Path(reply['path']))
             else:
-                remote = await self.transport.send_text(reply['chat_id'], reply['text'])
+                remote = await self.transport.send_text(reply['chat_id'], reply['text'], reply_to=reply['reply_to'])
             if self.settings.mode == 'live' and not remote:
                 raise ValueError('WhatsApp did not return a message ID.')
             self.store.delivery(reply['id'], 'fixture' if self.settings.mode == 'offline' else 'sent', remote_id=remote)
@@ -822,13 +831,22 @@ class Octo:
             self.store.delivery(reply['id'], 'uncertain', error='Delivery was not confirmed; check WhatsApp before resending.')
             if reply['kind'] == 'voice':
                 self.store.reply(reply['dedupe_key'] + ':delivery-status', reply['chat_id'],
-                                 'The written answer is ready, but audio delivery was not confirmed. Please check the chat before retrying.')
+                                 'The written answer is ready, but audio delivery was not confirmed. Please check the chat before retrying.',
+                                 reply_to=reply['reply_to'], reply_chat_id=reply['reply_chat_id'])
         return True
 
     def _delivery_allowed(self, reply):
+        if reply.get('reply_to') and reply.get('reply_chat_id') != reply['chat_id']:
+            return False
         # Re-check at send time too: a queued response can outlive a roster edit.
         if reply['chat_id'] not in self.roster.data['groups'] and not self.roster.member_scope([reply['chat_id']])[0]:
             return False
+        if ':calendar-error:' in reply['dedupe_key']:
+            source_id, calendar_id = reply['dedupe_key'].split(':calendar-error:', 1)
+            job = self.store.db.execute('SELECT status FROM calendar_jobs WHERE source_id=? AND calendar_id=?',
+                                        (source_id, calendar_id)).fetchone()
+            if calendar_id != self.settings.calendar_id or not job or job['status'] != 'failed':
+                return False
         if ':calendar:' in reply['dedupe_key']:
             source_id, calendar_id = reply['dedupe_key'].split(':calendar:', 1)
             if calendar_id != self.settings.calendar_id or self.store.db.execute('SELECT 1 FROM fact_replacements WHERE old_source_id=?', (source_id,)).fetchone():
@@ -850,7 +868,10 @@ class Octo:
             return bool(fact and fact['extraction'].get('status', 'active') == 'active' and (fact['extraction'].get('due_date') or '') >= today)
         row = self.store.db.execute('SELECT event,context FROM inbox WHERE source_id=?', (reply['dedupe_key'].split(':')[0],)).fetchone()
         if row:
-            caller = self.roster.resolve(IncomingMessage.model_validate_json(row['event']))
+            event = IncomingMessage.model_validate_json(row['event'])
+            if reply['chat_id'] != event.chat_id or (reply.get('reply_to') and reply['reply_to'] != event.message_id):
+                return False
+            caller = self.roster.resolve(event)
             if not caller:
                 return False
             before = json.loads(row['context'])

@@ -23,7 +23,7 @@ class OfflineTransport:
         return destination
 
     async def send_text(self, chat_id, text, reply_to=None):
-        self.sent.append({'chat_id': chat_id, 'text': text})
+        self.sent.append({'chat_id': chat_id, 'text': text, 'reply_to': reply_to})
         return None
 
     async def send_voice(self, chat_id, path):
