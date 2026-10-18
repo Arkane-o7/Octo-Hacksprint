@@ -45,9 +45,11 @@ async def test_quote_survives_restart_and_targets_incoming_not_its_quote(app):
     app.store.close()
     app.store = Store(app.settings.data_dir / 'queue.sqlite3')
     await app.deliver_one()
-    assert app.transport.sent == [dict(chat_id=event.chat_id,
-        text='[OFFLINE DEMO — synthetic fixture responses; no live delivery]\nAnswer',
-        reply_to=event.message_id)]
+    assert len(app.transport.sent) == 1
+    assert app.transport.sent[0]['chat_id'] == event.chat_id
+    assert app.transport.sent[0]['reply_to'] == event.message_id
+    assert app.transport.sent[0]['text'].startswith('[OFFLINE DEMO — synthetic fixture responses; no live delivery]\nAnswer')
+    assert app.transport.sent[0]['text'].count('Hi! I’m Octo') == 1
 
 
 def test_legacy_queue_migration_preserves_pending_reply(tmp_path):
@@ -110,7 +112,7 @@ async def test_voice_ack_precedes_stt_with_backlog_and_is_durable_under_retry(ap
     async def slow_stt(path, names):
         calls.append('stt')
         assert app.transport.sent[0]['reply_to'] == event.message_id
-        assert 'Processing your voice' in app.transport.sent[0]['text']
+        assert 'वॉइस संदेश' in app.transport.sent[0]['text']
         raise TimeoutError()
     app.ai.transcribe = slow_stt
     await app.process(row)
@@ -119,7 +121,7 @@ async def test_voice_ack_precedes_stt_with_backlog_and_is_durable_under_retry(ap
     await app.process(app.store.message(event.source_key))
     assert calls == ['stt', 'stt']
     assert len([r for r in app.store.replies() if r['dedupe_key'].endswith(':voice-ack')]) == 1
-    assert len([r for r in app.transport.sent if 'Processing your voice' in r['text']]) == 1
+    assert len([r for r in app.transport.sent if 'वॉइस संदेश' in r['text']]) == 1
 
 
 def test_new_verified_member_defaults_to_text(app):

@@ -20,7 +20,7 @@ from .delivery import should_speak
 from .sarvam import SarvamError
 from .presentation import saved_notice, answer_text, error_message, source_line, friendly_date, requested_link_types
 
-from .i18n import language, message, cart_chrome
+from .i18n import language, message, cart_chrome, requested_language
 from .welcome import intent, welcome, first_use, shortcut
 
 logger = logging.getLogger(__name__)
@@ -225,6 +225,10 @@ class Octo:
         transcript = row['transcript'] if row else None
         return language(transcript or (event.text if event.kind != 'voice' else ''), caller.get('language', 'en-IN'))
 
+    def _source_language(self, sid):
+        row = self.store.db.execute('SELECT event FROM inbox WHERE source_id=?', (sid.split('-')[0],)).fetchone()
+        return self._ui_language(sid.split('-')[0], IncomingMessage.model_validate_json(row['event'])) if row else 'en-IN'
+
     def reply(self, sid: str, event: IncomingMessage, text: str, suffix='answer'):
         caller = self.roster.resolve(event)
         lang = self._ui_language(sid, event, caller)
@@ -334,14 +338,14 @@ class Octo:
                 self.reply(sid, event, 'The date is saved on the original notice.', 'date-clarified')
             return True
         pending = self.contexts.get(event, caller, 'teacher')
-        original_date = pending[0][1]['record'].get('date_as_written') if len(pending) == 1 else None
+        original_date = pending[0][1].get('record', {}).get('date_as_written') if len(pending) == 1 else None
         resolved = date_only(text, event.timestamp, original_date)
         if not resolved:
             if re.fullmatch(r"(?:20\d{2}|\d{1,2} [A-Za-z]+ 20\d{2}|20\d{2}-\d{2}-\d{2})", text.strip()):
                 self.reply(sid, event, 'Please send the full corrected notice with a valid date and year.', 'date-clarify')
                 return True
             return False
-        if event.forwarded or event.is_quoted or event.quoted_message_id or len(pending) != 1:
+        if event.forwarded or event.is_quoted or event.quoted_message_id or len(pending) != 1 or 'record' not in pending[0][1]:
             self.reply(sid, event, 'Please send the full corrected notice with its date; I cannot identify one pending notice.', 'date-clarify')
             return True
         slot, saved = pending[0]
@@ -354,13 +358,16 @@ class Octo:
         self.queue_calendar_sync()
         reminder = self._schedule_reminders(slot, record, event.timestamp)
         self.reply(sid, event, saved_notice(record, caller['class_id'],
-                   {'sender': caller['name'], 'timestamp': event.timestamp.isoformat()}, reminder=reminder), 'date-clarified')
+                   {'sender': caller['name'], 'timestamp': saved['event']['timestamp']}, reminder=reminder,
+                   language=self._ui_language(sid, event, caller)), 'date-clarified')
         return True
 
     async def _save_extraction(self, sid: str, event: IncomingMessage, caller: dict, result: Extraction):
         if self.contexts.completed(sid):
             return  # A retried OCR job must never restore an undated snapshot.
-        if result.kind not in ('requirement', 'syllabus', 'school_day') or (result.kind != 'school_day' and not (result.items or result.sections)):
+        if (result.kind not in ('requirement', 'syllabus', 'notes', 'note', 'school_day')
+                or result.status != 'active' or result.replaces_source_ids
+                or (result.kind != 'school_day' and not (result.items or result.sections))):
             if event.kind in ('image', 'document'):
                 self.reply(sid, event, 'I could not identify school requirements, syllabus topics or lesson notes in this attachment. Please send the actual school notice or a clearer photo of the notes; nothing was saved.')
             else:
@@ -395,7 +402,8 @@ class Octo:
                         break
                     except ValueError:
                         pass
-        if result.date_as_written and re.fullmatch(r'\d{1,2} [A-Za-z]+', result.date_as_written.strip()):
+        if result.date_as_written and (re.fullmatch(r'\d{1,2}(?:st|nd|rd|th)? [A-Za-z]+', result.date_as_written.strip(), re.I)
+                or re.fullmatch(r'\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?', result.date_as_written.strip())):
             result.due_date = None  # A month/day without its year needs confirmation.
         if not result.due_date and result.status == 'active' and date_uncertainty_only(result) and not result.student_id and not result.replaces_source_ids:
             if result.kind != 'school_day' or (result.school_day_status and not result.subject and not result.items and not result.sections):
@@ -585,9 +593,13 @@ class Octo:
                     return True
             # A backlog must not put slow Google work ahead of this notice's
             # substantive saved reply (including records from one decision).
+            message_ids = [fact['source'].get('message_id'),
+                           *(item['message_id'] for item in fact['source'].get('clarifications', []))]
             acknowledgements = self.store.db.execute(
-                "SELECT dedupe_key FROM outbox WHERE status='pending' AND chat_id=? AND reply_to=? AND dedupe_key LIKE '%:answer'",
-                (fact['source'].get('chat_id'), fact['source'].get('message_id'))).fetchall()
+                "SELECT dedupe_key,reply_to FROM outbox WHERE status='pending' AND chat_id=? "
+                "AND (dedupe_key LIKE '%:answer' OR dedupe_key LIKE '%:date-clarified')",
+                (fact['source'].get('chat_id'),)).fetchall()
+            acknowledgements = [reply for reply in acknowledgements if reply['reply_to'] in message_ids]
             for acknowledgement in acknowledgements:
                 await self.deliver_one(key=acknowledgement['dedupe_key'])
             with self.store.db:
@@ -604,7 +616,7 @@ class Octo:
                           else 'Calendar sync unconfirmed; retry scheduled.'), job['source_id'],job['calendar_id']))
                 if attempts >= 3 and fact['source'].get('chat_id') in self.roster.data['groups']:
                     self.store.reply(f"{job['source_id']}:calendar-error:{job['calendar_id']}", fact['source']['chat_id'],
-                        'The school record is saved, but Google Calendar synchronization is unconfirmed after three attempts. Automatic retries have stopped; check the demo calendar and OAuth setup.',
+                        message('The school record is saved, but Google Calendar synchronization is unconfirmed after three attempts. Automatic retries have stopped; check the demo calendar and OAuth setup.', self._source_language(job['source_id'])),
                         reply_to=fact['source'].get('message_id'), reply_chat_id=fact['source']['chat_id'])
             return True
         return False
@@ -696,6 +708,11 @@ class Octo:
         if followup and (not previous or followup_intent.mode == 'ambiguous'):
             self.reply(sid, event, 'Which notice or student do you mean? Please ask the full question.', 'context-clarify')
             return
+        if followup:
+            lang = (requested_language(text) if followup_intent.mode == 'language' else None) or previous.get('language', lang)
+            parent = {**parent, 'language': lang}
+            with self.store.db:
+                self.store.db.execute('INSERT OR REPLACE INTO ui_languages VALUES (?, ?)', (sid, lang))
         students = self.roster.permitted_students(parent)
         named = [student for student in students if any(
             re.search(r'(?<!\w)' + re.escape(name) + r'(?!\w)', text, re.I)
@@ -759,14 +776,18 @@ class Octo:
         self.contexts.put(event, parent, 'parent', {'student_ids': [s['id'] for s in students],
             'source_ids': list(dict.fromkeys(answer.source_ids))[:8],
             'versions': {f['source_id']: hashlib.sha256(json.dumps(f['extraction'], sort_keys=True).encode()).hexdigest() for f in cited_facts[:8]},
-            'question': (previous['question'] if followup else text)[:1000]})
+            'language': lang, 'question': (previous['question'] if followup else original_text)[:1000]})
         self.reply(sid, event, answer_text(answer.text, cited_facts, answer.language_code, requested_link_types(text, answer.requested_links)))
-        if not followup and not event.is_group and answer.proposed_items and answer.cart_request_quote and answer.cart_request_quote.casefold() in original_text.casefold():
+        if (not followup and not event.is_group and event.kind == 'text'
+                and not event.forwarded and not event.is_quoted and not event.quoted_message_id
+                and answer.proposed_items and answer.cart_request_quote and answer.cart_request_quote.casefold() in original_text.casefold()):
             from .cart import CartService
             self.reply(sid, event, CartService(self.store.db).propose(parent['id'], event.chat_id, answer.proposed_items), 'cart')
         # Text delivery is independent of TTS failure/latency.
         await self.deliver_one(key=f'{sid}:answer')
-        if should_speak(event, parent):
+        if should_speak(event, parent, read_aloud=any(
+                data.get('source_key') == event.source_key and data.get('read_aloud')
+                for _, data in self.contexts.get(event, parent, 'answer_intent'))):
             if self.settings.mode == 'offline':
                 self.reply(sid, event, 'Audio is skipped in offline mode; no Sarvam speech was generated.', 'audio-status')
                 return
@@ -874,7 +895,7 @@ class Octo:
             self.store.delivery(reply['id'], 'uncertain', error='Delivery was not confirmed; check WhatsApp before resending.')
             if reply['kind'] == 'voice':
                 self.store.reply(reply['dedupe_key'] + ':delivery-status', reply['chat_id'],
-                                 'The written answer is ready, but audio delivery was not confirmed. Please check the chat before retrying.',
+                                 message('The written answer is ready, but audio delivery was not confirmed. Please check the chat before retrying.', self._source_language(reply['dedupe_key'].split(':')[0])),
                                  reply_to=reply['reply_to'], reply_chat_id=reply['reply_chat_id'])
         return True
 

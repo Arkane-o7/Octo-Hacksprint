@@ -107,3 +107,27 @@ register('The document service is taking too long. The photo is retained; please
 register('The document service could not process this photo. Please try again or send a clearer photo.', 'दस्तावेज़ सेवा यह फ़ोटो पढ़ नहीं सकी। फिर कोशिश करें या साफ़ फ़ोटो भेजें।', 'ஆவணச் சேவையால் இந்தப் படத்தைச் செயலாக்க முடியவில்லை. மீண்டும் முயலுங்கள் அல்லது தெளிவான படத்தை அனுப்புங்கள்.')
 register('The document service returned an unexpected status. Please retry later.', 'दस्तावेज़ सेवा से अप्रत्याशित स्थिति मिली। कृपया बाद में फिर कोशिश करें।', 'ஆவணச் சேவை எதிர்பாராத நிலையைத் தந்தது. பின்னர் மீண்டும் முயலுங்கள்.')
 register('This photo contains an individual student name. This demo saves class-wide syllabus notices only; please send a class-wide notice without individual details.', 'इस फ़ोटो में एक छात्र का नाम है। यह डेमो केवल पूरी कक्षा का पाठ्यक्रम सहेजता है; व्यक्तिगत विवरण के बिना पूरी कक्षा की सूचना भेजें।', 'இந்தப் படத்தில் ஒரு மாணவரின் பெயர் உள்ளது. இந்த டெமோ முழு வகுப்புப் பாடத்திட்ட அறிவிப்புகளை மட்டுமே சேமிக்கிறது; தனிப்பட்ட விவரங்கள் இல்லாத வகுப்பு அறிவிப்பை அனுப்புங்கள்.')
+
+
+def requested_language(text):
+    """Read supported language names only after a language-only intent."""
+    for code, pattern in [('hi-IN', r'\bhindi\b|हिंदी|हिन्दी'),
+                          ('ta-IN', r'\btamil\b|தமிழ்'),
+                          ('en-IN', r'\benglish\b|अंग्रेज़ी|ஆங்கிலம்')]:
+        if re.search(pattern, text, re.I):
+            return code
+    return None
+
+register('🎙️ Processing your voice message…', '🎙️ आपका वॉइस संदेश समझ रहा हूँ…', '🎙️ உங்கள் குரல் செய்தியைப் புரிந்துகொள்கிறேன்…')
+register('Which notice or student do you mean? Please ask the full question.', 'किस सूचना या बच्चे के बारे में पूछ रहे हैं? कृपया पूरा सवाल पूछें।', 'எந்த அறிவிப்பு அல்லது குழந்தையைப் பற்றிக் கேட்கிறீர்கள்? முழுக் கேள்வியையும் கேளுங்கள்.')
+register('Please ask the full question for a student linked to your account.', 'कृपया अपने खाते से जुड़े बच्चे के लिए पूरा सवाल पूछें।', 'உங்கள் கணக்குடன் இணைக்கப்பட்ட குழந்தைக்கான முழுக் கேள்வியையும் கேளுங்கள்.')
+register('The previous selection is no longer available. Please ask the full question.', 'पिछला चयन अब उपलब्ध नहीं है। कृपया पूरा सवाल पूछें।', 'முந்தைய தேர்வு இப்போது கிடைக்கவில்லை. முழுக் கேள்வியையும் கேளுங்கள்.')
+register('Which of the previous notices do you mean? Please name its topic and date.', 'पिछली किस सूचना के बारे में पूछ रहे हैं? कृपया उसका विषय और तारीख़ बताएँ।', 'முந்தைய அறிவிப்புகளில் எதைக் குறிப்பிடுகிறீர்கள்? அதன் தலைப்பையும் தேதியையும் கூறுங்கள்.')
+register('The date is saved on the original notice.', 'तारीख़ मूल सूचना में सहेज दी गई है।', 'மூல அறிவிப்பில் தேதி சேமிக்கப்பட்டது.')
+register('Please send the full corrected notice with a valid date and year.', 'कृपया सही तारीख़ और वर्ष के साथ पूरी संशोधित सूचना भेजें।', 'சரியான தேதி மற்றும் ஆண்டுடன் முழுத் திருத்தப்பட்ட அறிவிப்பை அனுப்புங்கள்.')
+register('Please send the full corrected notice with its date; I cannot identify one pending notice.', 'कृपया तारीख़ सहित पूरी संशोधित सूचना भेजें; मैं एक लंबित सूचना की पहचान नहीं कर पा रहा हूँ।', 'தேதியுடன் முழுத் திருத்தப்பட்ட அறிவிப்பை அனுப்புங்கள்; ஒரே ஒரு நிலுவை அறிவிப்பை என்னால் அடையாளம் காண முடியவில்லை.')
+register('That notice has changed. Please send the full corrected notice.', 'वह सूचना बदल गई है। कृपया पूरी संशोधित सूचना भेजें।', 'அந்த அறிவிப்பு மாறியுள்ளது. முழுத் திருத்தப்பட்ட அறிவிப்பை அனுப்புங்கள்.')
+register('Which date (including year) applies? Reply with just the date. If several notices are pending, send a full corrected notice.', 'कौन-सी तारीख़ और वर्ष लागू हैं? केवल तारीख़ भेजें। कई सूचनाएँ लंबित हों तो पूरी संशोधित सूचना भेजें।', 'எந்த தேதி மற்றும் ஆண்டு பொருந்தும்? தேதியை மட்டும் அனுப்புங்கள். பல அறிவிப்புகள் நிலுவையில் இருந்தால் முழுத் திருத்தப்பட்ட அறிவிப்பை அனுப்புங்கள்.')
+register('Which date does this class-day notice apply to? Reply with the date; I have not changed the class-day record.', 'यह कक्षा-दिन सूचना किस तारीख़ के लिए है? तारीख़ भेजें; मैंने कक्षा के दिन का रिकॉर्ड नहीं बदला है।', 'இந்த வகுப்பு நாள் அறிவிப்பு எந்தத் தேதிக்கானது? தேதியை அனுப்புங்கள்; வகுப்பு நாள் பதிவை நான் மாற்றவில்லை.')
+register('The school record is saved, but Google Calendar synchronization is unconfirmed after three attempts. Automatic retries have stopped; check the demo calendar and OAuth setup.', 'स्कूल रिकॉर्ड सहेजा गया है, लेकिन तीन कोशिशों के बाद भी Google Calendar सिंक की पुष्टि नहीं हुई है। अपने-आप फिर कोशिश करना बंद हो गया है; डेमो कैलेंडर और OAuth सेटअप जाँचें।', 'பள்ளிப் பதிவு சேமிக்கப்பட்டது, ஆனால் மூன்று முயற்சிகளுக்குப் பிறகும் Google Calendar ஒத்திசைவு உறுதியாகவில்லை. தானியங்கி மறுமுயற்சிகள் நிறுத்தப்பட்டன; டெமோ நாட்காட்டி மற்றும் OAuth அமைப்பைச் சரிபாருங்கள்.')
+register('The written answer is ready, but audio delivery was not confirmed. Please check the chat before retrying.', 'लिखित जवाब तैयार है, लेकिन ऑडियो पहुँचने की पुष्टि नहीं हुई। फिर कोशिश करने से पहले चैट जाँचें।', 'எழுத்து வடிவிலான பதில் தயார், ஆனால் ஒலி அனுப்பப்பட்டது உறுதியாகவில்லை. மீண்டும் முயலும் முன் அரட்டையைச் சரிபாருங்கள்.')

@@ -15,7 +15,9 @@ class FollowupIntent(BaseModel):
 
 
 def scope(event, caller):
-    return [event.session, event.chat_id, caller['id'], caller.get('class_id', '')]
+    return [event.session, event.chat_id, caller['id'], caller.get('class_id', ''),
+            sorted(caller.get('student_ids', [])), sorted(caller.get('classes', [])),
+            caller.get('class_wide_only', False)]
 
 
 def date_only(text, timestamp, original=None):
@@ -43,12 +45,12 @@ def date_uncertainty_only(record):
 def fixture_followup(text):
     """Offline fixture only. Live understanding uses Sarvam's structured intent."""
     value = text.strip().lower()
-    if value in ('read that aloud', 'read it aloud'):
+    if value in ('read that aloud', 'read it aloud', 'read aloud'):
         return FollowupIntent(mode='audio')
     if value.startswith('in ') and value.endswith(' please'):
         return FollowupIntent(mode='language')
     if value.startswith('and '):
         return FollowupIntent(mode='date')
-    if value in ('send its notes', 'show its calendar entry'):
+    if value in ('send its notes', 'show its calendar entry', 'send notes', 'show calendar', 'send calendar'):
         return FollowupIntent(mode='reference')
     return FollowupIntent()
