@@ -270,8 +270,9 @@ async def test_text_survives_tts_failure_and_cannot_claim_audio_sent(octo):
     octo.ai.tts_fails = True
     await put(octo, question(kind='voice', media=Media(url='fixture://parent-hindi', mime_type='audio/ogg')))
     parent_replies = [r for r in octo.store.replies() if r['chat_id'] == 'demo-parent-a']
-    assert 'crayons' in parent_replies[0]['text']
-    assert 'audio is unavailable' in parent_replies[1]['text']
+    assert parent_replies[0]['dedupe_key'].endswith(':voice-ack')
+    assert 'crayons' in parent_replies[1]['text']
+    assert 'audio is unavailable' in parent_replies[2]['text']
     assert all(r['kind'] == 'text' for r in parent_replies)
 
 
