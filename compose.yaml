@@ -9,7 +9,7 @@ services:
       WHATSAPP_DEFAULT_ENGINE: NOWEB
       WAHA_API_KEY: ${WAHA_API_KEY:?Set WAHA_API_KEY in .env}
       WHATSAPP_HOOK_URL: http://host.docker.internal:8018/webhooks/waha
-      WHATSAPP_HOOK_EVENTS: message
+      WHATSAPP_HOOK_EVENTS: message,group.v2.participants
       WHATSAPP_HOOK_HMAC_KEY: ${WAHA_WEBHOOK_SECRET:?Set WAHA_WEBHOOK_SECRET in .env}
       WAHA_DASHBOARD_ENABLED: "false"
       WAHA_DASHBOARD_USERNAME: admin

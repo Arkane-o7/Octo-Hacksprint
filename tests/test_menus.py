@@ -275,6 +275,8 @@ async def test_menu_data_uses_existing_encrypted_database(octo):
     octo.store = Store(path, key='ab' * 32)
     from octo.menus import Menus
     octo.menus = Menus(octo)
+    from octo.onboarding import Onboarding
+    octo.onboarding = Onboarding(octo)
     await ask(octo, 'menu')
     await ask(octo, '4')
     await ask(octo, '2')

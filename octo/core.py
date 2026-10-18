@@ -16,6 +16,7 @@ from .contracts import Extraction, IncomingMessage, NoticeDecision
 from .storage import Store
 from .delivery import should_speak
 from .menus import Menus, OPEN_MENU
+from .onboarding import Onboarding
 from .menu_copy import copy as menu_copy, menu_language
 from .sarvam import SarvamError
 from .presentation import saved_notice, answer_text, error_message, source_line, friendly_date, requested_link_types
@@ -149,6 +150,7 @@ class Octo:
         self.settings, self.store, self.roster = settings, store, roster
         self.ai, self.transport = ai, transport
         self.menus = Menus(self)
+        self.onboarding = Onboarding(self)
         self._membership_lock = asyncio.Lock()
         self.drive = drive
         self.calendar = calendar
@@ -755,6 +757,8 @@ class Octo:
         # Re-check at send time too: a queued response can outlive a roster edit.
         if reply['chat_id'] not in self.roster.data['groups'] and not self.roster.member_scope([reply['chat_id']])[0]:
             return False
+        if reply['dedupe_key'].startswith('join:'):
+            return self.onboarding.delivery_allowed(reply)
         if ':calendar-error:' in reply['dedupe_key']:
             source_id, calendar_id = reply['dedupe_key'].split(':calendar-error:', 1)
             job = self.store.db.execute('SELECT status FROM calendar_jobs WHERE source_id=? AND calendar_id=?',
@@ -802,7 +806,7 @@ class Octo:
         return reply['chat_id'] in self.roster.data['groups'] or any(reply['chat_id'] in p['whatsapp_ids'] for p in self.roster.data['parents'])
 
     async def tick(self) -> bool:
-        work = False
+        work = await self.onboarding.process_one()
         row = self.store.next_message()
         if row:
             await self.process(row)

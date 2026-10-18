@@ -56,6 +56,14 @@ group or in DMs. Non-members receive no automated replies, including numbers
 listed in the parent roster. Live group membership is checked through WAHA
 before ingestion, processing and delivery; a failed lookup does not reuse old
 membership. Phone/LID aliases come from the transport's participant list.
+New members receive one private welcome and numbered menu after a verified join
+in a configured class group. This requires the signed WAHA
+`group.v2.participants` event, included in `compose.yaml` alongside `message`.
+After upgrading an existing installation, recreate the WAHA service with
+`docker compose up -d waha` to apply the webhook subscription. Existing session
+volumes are retained. Members who joined before the subscription was enabled can
+send `menu` in a DM; the app does not broadcast a welcome to the existing roster.
+
 Only configured teachers can save or update notices. Existing `parents` entries
 retain their linked-student access and language preferences. New group members
 see only class-wide facts for groups they belong to; group answers always use

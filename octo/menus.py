@@ -81,6 +81,19 @@ class Menus:
                             (*self.key(event, parent), scope(parent), json.dumps(state), time.time() + MENU_TTL))
         return state
 
+    def welcome(self, sid, event, parent):
+        """Queue an unsolicited join welcome atomically; there is no user quote."""
+        language = parent.get('language', 'en-IN')
+        text = copy('welcome', language) + '\n\n' + copy('main', language)
+        if self.app.settings.mode == 'offline':
+            text = '[OFFLINE DEMO — synthetic fixture responses; no live delivery]\n' + text
+        # Caller owns the transaction; do not commit in Store.reply or _set.
+        self.db.execute('INSERT OR IGNORE INTO outbox(dedupe_key,chat_id,text) VALUES(?,?,?)',
+                        (f'{sid}:answer', event.chat_id, text))
+        state = dict(page='main', language=language, message_key=f'{sid}:answer')
+        self.db.execute('INSERT OR REPLACE INTO ux_menus VALUES(?,?,?,?,?,?)',
+                        (*self.key(event, parent), scope(parent), json.dumps(state), time.time() + MENU_TTL))
+
     def clear(self, event, parent):
         with self.db:
             self.db.execute('DELETE FROM ux_menus WHERE session=? AND chat=? AND person=?', self.key(event, parent))

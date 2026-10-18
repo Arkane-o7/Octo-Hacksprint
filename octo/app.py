@@ -11,6 +11,7 @@ from .core import Octo, Roster
 from .drive import GoogleDriveClient
 from .calendar import GoogleCalendarClient
 from .offline import OfflineAI, OfflineTransport
+from .onboarding import normalize_join
 from .sarvam import SarvamClient
 from .storage import Store
 from .waha import WahaClient, normalize, verify_signature
@@ -56,6 +57,7 @@ def create_app(settings: Settings | None = None, *, ai=None, transport=None, dri
         octo = request.app.state.octo
         return {'status': 'ok', 'mode': octo.settings.mode,
                 'parent_access': 'group_members_only',
+                'join_onboarding_enabled': True,
                 'general_brain_enabled': octo.settings.general_brain,
                 'calendar_configured': bool(octo.calendar and octo.calendar.configured),
                 'external_integrations_verified': False,
@@ -77,7 +79,11 @@ def create_app(settings: Settings | None = None, *, ai=None, transport=None, dri
         ):
             raise HTTPException(401, 'Invalid webhook signature.')
         try:
-            event = normalize(json.loads(body))
+            payload = json.loads(body)
+            joined = normalize_join(payload)
+            if joined is not None:
+                return {'status': octo.onboarding.accept(joined)}
+            event = normalize(payload)
         except (ValueError, TypeError):
             raise HTTPException(400, 'Malformed incoming message.') from None
         if event is None:

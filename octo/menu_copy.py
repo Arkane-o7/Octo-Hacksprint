@@ -1,6 +1,7 @@
 """Compact text-menu chrome. School answers keep their own detected language."""
 COPY = {
     'en': {
+        'welcome': '👋 Welcome to Octo! You joined a connected class group. I can help you find teacher-shared notices, supplies and notes. Ask by text or voice in your preferred language, or choose below.',
         'main': '*Octo · School help*\n\n1 · Today\n2 · Tomorrow\n3 · Notes\n4 · Settings\n\nReply with a number, or ask a question in your own words.',
         'footer': '1 · Read aloud\n2 · Show sources & links\n3 · Ask another question\n0 · Main menu',
         'settings': '*Settings*\n\n1 · Language\n2 · Audio replies\n0 · Main menu',
@@ -21,6 +22,7 @@ COPY = {
         'teacher': 'Post a class-wide notice, a short voice note, a board photo or a PDF here. Include the date when it matters. Parent menus are available in private chat.',
     },
     'hi': {
+        'welcome': '👋 Octo में आपका स्वागत है! आप जुड़े हुए कक्षा समूह में शामिल हुए हैं। मैं शिक्षक के नोटिस, ज़रूरी सामान और नोट्स खोजने में मदद कर सकता हूँ। अपनी भाषा में लिखकर या बोलकर पूछें, या नीचे चुनें।',
         'main': '*Octo · स्कूल की जानकारी*\n\n1 · आज\n2 · कल\n3 · नोट्स\n4 · सेटिंग्स\n\nनंबर भेजें या अपने शब्दों में सवाल पूछें।',
         'footer': '1 · सुनाएँ\n2 · स्रोत और लिंक दिखाएँ\n3 · अगला सवाल\n0 · मुख्य मेन्यू',
         'settings': '*सेटिंग्स*\n\n1 · भाषा\n2 · ऑडियो जवाब\n0 · मुख्य मेन्यू',
@@ -41,6 +43,7 @@ COPY = {
         'teacher': 'यहाँ पूरी कक्षा का नोटिस, छोटा वॉइस संदेश, बोर्ड की फोटो या PDF भेजें। ज़रूरी तारीख भी लिखें। अभिभावक मेन्यू निजी चैट में उपलब्ध हैं।',
     },
     'ta': {
+        'welcome': '👋 Octo உங்களை வரவேற்கிறது! இணைக்கப்பட்ட வகுப்புக் குழுவில் சேர்ந்துள்ளீர்கள். ஆசிரியரின் அறிவிப்புகள், தேவையான பொருட்கள் மற்றும் குறிப்புகளைக் கண்டறிய உதவுவேன். உங்கள் மொழியில் எழுதுங்கள், குரல் செய்தி அனுப்புங்கள் அல்லது கீழே தேர்ந்தெடுங்கள்.',
         'main': '*Octo · பள்ளி உதவி*\n\n1 · இன்று\n2 · நாளை\n3 · குறிப்புகள்\n4 · அமைப்புகள்\n\nஎண்ணை அனுப்பவும் அல்லது உங்கள் சொற்களில் கேள்வி கேட்கவும்.',
         'footer': '1 · வாசித்துக் காட்டு\n2 · ஆதாரங்கள் மற்றும் இணைப்புகள்\n3 · அடுத்த கேள்வி\n0 · முதன்மை பட்டியல்',
         'settings': '*அமைப்புகள்*\n\n1 · மொழி\n2 · ஒலி பதில்கள்\n0 · முதன்மை பட்டியல்',
