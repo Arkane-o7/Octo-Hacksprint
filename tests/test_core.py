@@ -261,7 +261,7 @@ async def test_pending_ocr_job_resumes_without_submitting_again(octo):
 async def test_overlong_voice_has_actionable_reply(octo):
     octo.ai.audio_long = True
     await put(octo, question(kind='voice', media=Media(url='fixture://parent-hindi', mime_type='audio/ogg; codecs=opus')))
-    assert 'shorter than 30 seconds' in output(octo)
+    assert '30 सेकंड से छोटा' in output(octo)
 
 
 async def test_text_survives_tts_failure_and_cannot_claim_audio_sent(octo):
@@ -272,7 +272,7 @@ async def test_text_survives_tts_failure_and_cannot_claim_audio_sent(octo):
     parent_replies = [r for r in octo.store.replies() if r['chat_id'] == 'demo-parent-a']
     assert parent_replies[0]['dedupe_key'].endswith(':voice-ack')
     assert 'crayons' in parent_replies[1]['text']
-    assert 'audio is unavailable' in parent_replies[2]['text']
+    assert 'ऑडियो अभी उपलब्ध नहीं है' in parent_replies[2]['text']
     assert all(r['kind'] == 'text' for r in parent_replies)
 
 

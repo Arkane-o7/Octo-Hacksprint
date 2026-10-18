@@ -5,6 +5,8 @@ import re
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+from .i18n import message
+
 IST = ZoneInfo('Asia/Kolkata')
 
 # Only app chrome is translated here; answers remain in the model-selected language.
@@ -52,7 +54,7 @@ def source_line(source: dict) -> str:
         return sender
 
 
-def saved_notice(record, class_id: str, source: dict, *, reminder=False) -> str:
+def saved_notice(record, class_id: str, source: dict, *, reminder=False, language='en-IN') -> str:
     if record.kind == 'school_day':
         title = 'No classes' if record.school_day_status == 'no_classes' else 'Classes as usual'
     elif record.status == 'cancelled':
@@ -65,11 +67,11 @@ def saved_notice(record, class_id: str, source: dict, *, reminder=False) -> str:
         title = 'Study checklist' if record.kind == 'syllabus' else 'Class notes'
     else:
         title = 'School update'
-    lines = [f'✓ *{title}*', f'Class {plain(class_id)}' + (f' · {plain(record.subject)}' if record.subject else '')]
+    lines = [f'✓ *{message(title, language)}*', message('Class', language) + f' {plain(class_id)}' + (f' · {plain(record.subject)}' if record.subject else '')]
     if record.due_date:
         lines.append(friendly_date(record.due_date))
     elif record.date_as_written:
-        lines.append(f'Date to confirm: {plain(record.date_as_written)}')
+        lines.append(message('Date to confirm', language) + ': ' + plain(record.date_as_written))
     if record.summary:
         lines += ['', plain(record.summary)]
     if record.items:
@@ -79,21 +81,21 @@ def saved_notice(record, class_id: str, source: dict, *, reminder=False) -> str:
         if section.chapter:
             chapter = plain(section.chapter)
             if chapter.isdigit():
-                chapter = 'Chapter ' + chapter
+                chapter = message('Chapter', language) + ' ' + chapter
             lines.append('*' + chapter + '*')
         lines.extend('• ' + plain(topic) for topic in section.topics)
         if section.pages:
-            lines.append('Pages ' + plain(section.pages))
+            lines.append(message('Pages', language) + ' ' + plain(section.pages))
     if record.instructions:
-        lines += ['', '*Remember*', *('• ' + plain(item) for item in record.instructions)]
+        lines += ['', '*' + message('Remember', language) + '*', *('• ' + plain(item) for item in record.instructions)]
     unclear = list(dict.fromkeys(record.unclear))
     if record.date_as_written and not record.due_date and not unclear:
-        unclear.append('Please confirm the full date, including the year.')
+        unclear.append(message('Please confirm the full date, including the year.', language))
     if unclear:
-        lines += ['', '*Please confirm*', *('• ' + plain(item) for item in unclear)]
+        lines += ['', '*' + message('Please confirm', language) + '*', *('• ' + plain(item) for item in unclear)]
     if reminder:
-        lines += ['', 'Reminder scheduled.']
-    lines += ['', '_Saved · ' + source_line(source) + '_']
+        lines += ['', message('Reminder scheduled.', language)]
+    lines += ['', '_' + message('Saved', language) + ' · ' + source_line(source) + '_']
     return '\n'.join(lines)
 
 
@@ -151,7 +153,7 @@ def calendar_saved(record: dict, class_id: str) -> str:
     return f'📅 *Calendar updated*\n{details}\n{friendly_date(record.get("due_date"))} · all-day\n\nAsk “Show the calendar entry” for the link.'
 
 
-def error_message(message: str) -> str:
-    if 'could not hear' in message:
-        return '*I couldn’t hear that clearly*\n\nPlease record a short voice note again, or type your message.'
-    return '*Couldn’t finish that*\n\n' + message
+def error_message(detail: str, language='en-IN') -> str:
+    if 'could not hear' in detail:
+        return message('*I couldn’t hear that clearly*\n\nPlease record a short voice note again, or type your message.', language)
+    return message('*Couldn’t finish that*', language) + '\n\n' + message(detail, language)
