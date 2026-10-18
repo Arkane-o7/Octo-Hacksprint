@@ -7,15 +7,21 @@ import json
 import re
 import time
 
-from .menu_copy import copy, menu_language
+from .menu_copy import LANGUAGES, copy, menu_language
 from .presentation import answer_text, plain
 
 MENU_TTL = 30 * 60
-OPEN_MENU = {'menu', 'help', 'hi', 'hello', 'start', 'मेन्यू', 'मेनू', 'मदद', 'नमस्ते', 'உதவி', 'வணக்கம்'}
+OPEN_MENU = {'menu', 'help', 'hi', 'hello', 'start', 'मेन्यू', 'मेनू', 'मदद', 'नमस्ते', 'உதவி', 'வணக்கம்',
+             'మెనూ', 'సహాయం', 'నమస్కారం', 'मदत', 'नमस्कार', 'মেনু', 'সাহায্য', 'নমস্কার', 'મેનુ', 'મદદ', 'નમસ્તે'}
+NEUTRAL_MENU_COMMANDS = {'menu', 'help', 'start', '0'}
 QUESTIONS = {
     'en-IN': {'1': 'What are the saved school notices for today?', '2': 'What are the saved school notices for tomorrow?', '3': 'Show the saved class notes, syllabus and document links.'},
     'hi-IN': {'1': 'आज के लिए स्कूल की क्या जानकारी सेव है?', '2': 'कल के लिए स्कूल की क्या जानकारी सेव है?', '3': 'सेव किए हुए कक्षा के नोट्स, पाठ्यक्रम और दस्तावेज़ लिंक दिखाएँ।'},
     'ta-IN': {'1': 'இன்றைக்கு சேமிக்கப்பட்ட பள்ளி அறிவிப்புகள் என்ன?', '2': 'நாளைக்கு சேமிக்கப்பட்ட பள்ளி அறிவிப்புகள் என்ன?', '3': 'சேமிக்கப்பட்ட வகுப்புக் குறிப்புகள், பாடத்திட்டம் மற்றும் ஆவண இணைப்புகளைக் காட்டு.'},
+    'te-IN': {'1': 'ఈరోజు కోసం సేవ్ చేసిన పాఠశాల ప్రకటనలు ఏమిటి?', '2': 'రేపటి కోసం సేవ్ చేసిన పాఠశాల ప్రకటనలు ఏమిటి?', '3': 'సేవ్ చేసిన తరగతి నోట్స్, సిలబస్, పత్రాల లింకులు చూపించండి.'},
+    'mr-IN': {'1': 'आजसाठी शाळेच्या कोणत्या सूचना जतन केल्या आहेत?', '2': 'उद्यासाठी शाळेच्या कोणत्या सूचना जतन केल्या आहेत?', '3': 'जतन केलेल्या वर्गाच्या नोट्स, अभ्यासक्रम आणि कागदपत्रांच्या लिंक्स दाखवा.'},
+    'bn-IN': {'1': 'আজকের জন্য স্কুলের কী কী বিজ্ঞপ্তি সংরক্ষিত আছে?', '2': 'আগামীকালের জন্য স্কুলের কী কী বিজ্ঞপ্তি সংরক্ষিত আছে?', '3': 'সংরক্ষিত ক্লাসের নোট, পাঠ্যসূচি ও নথির লিঙ্ক দেখান।'},
+    'gu-IN': {'1': 'આજ માટે શાળાની કઈ સૂચનાઓ સાચવેલી છે?', '2': 'આવતીકાલ માટે શાળાની કઈ સૂચનાઓ સાચવેલી છે?', '3': 'સાચવેલી વર્ગની નોટ્સ, અભ્યાસક્રમ અને દસ્તાવેજોની લિંક્સ બતાવો.'},
 }
 
 
@@ -59,17 +65,19 @@ class Menus:
     def key(event, parent):
         return event.session, event.chat_id, parent['id']
 
+    def _saved_preferences(self, event, parent):
+        row = self.db.execute('SELECT preferences FROM ux_preferences WHERE session=? AND chat=? AND person=?', self.key(event, parent)).fetchone()
+        return json.loads(row[0]) if row else {}
+
     def preferences(self, event, parent):
         if event.is_group:
             return parent
-        row = self.db.execute('SELECT preferences FROM ux_preferences WHERE session=? AND chat=? AND person=?', self.key(event, parent)).fetchone()
-        return {**parent, **(json.loads(row[0]) if row else {})}
+        return {**parent, **self._saved_preferences(event, parent)}
 
     def _preference(self, event, parent, **values):
         # Only explicit display/audio settings; never identity or permissions.
         assert set(values) <= {'language', 'voice_replies'}
-        row = self.db.execute('SELECT preferences FROM ux_preferences WHERE session=? AND chat=? AND person=?', self.key(event, parent)).fetchone()
-        saved = json.loads(row[0]) if row else {}
+        saved = self._saved_preferences(event, parent)
         saved.update(values)
         with self.db:
             self.db.execute('INSERT OR REPLACE INTO ux_preferences VALUES(?,?,?,?)', (*self.key(event, parent), json.dumps(saved)))
@@ -174,6 +182,8 @@ class Menus:
                 self.app.reply(sid, event, copy('fresh', language))
                 return MenuRoute(handled=True)
         if opening:
+            if clean in NEUTRAL_MENU_COMMANDS:
+                language = self._saved_preferences(event, parent).get('language', language)
             return self.show(sid, event, parent, language=language)
         if not state or state['expires'] <= time.time():
             return self.show(sid, event, parent, language=language, prefix=copy('expired', language))
@@ -187,8 +197,8 @@ class Menus:
                 return self.show(sid, event, parent, 'settings', language=language)
         elif page == 'settings' and clean in ('1', '2'):
             return self.show(sid, event, parent, 'languages' if clean == '1' else 'audio', language=language)
-        elif page == 'languages' and clean in ('1', '2', '3'):
-            language = {'1': 'en-IN', '2': 'hi-IN', '3': 'ta-IN'}[clean]
+        elif page == 'languages' and clean in LANGUAGES:
+            language = LANGUAGES[clean][0]
             self._preference(event, parent, language=language)
             return self.show(sid, event, parent, language=language, prefix=copy('saved', language))
         elif page == 'audio' and clean in ('1', '2'):

@@ -7,7 +7,7 @@ import pytest
 
 from octo.cart import CartService
 from octo.contracts import Extraction, GroundedAnswer
-from octo.menu_copy import COPY
+from octo.menu_copy import COPY, copy
 from octo.storage import Store
 from test_core import octo, notice, question, put, output
 
@@ -59,6 +59,99 @@ async def test_language_and_audio_settings_persist_after_restart(octo):
     await put(octo, notice())
     event = await ask(octo, 'What does Aarav need?')
     assert not any(r['dedupe_key'].endswith(':audio-status') for r in replies(octo, event))
+
+
+LANGUAGE_CASES = [
+    ('1', 'en-IN', 'English', 'Today', ('today', 'tomorrow', 'notes')),
+    ('2', 'hi-IN', 'हिंदी', 'आज', ('आज', 'कल', 'नोट्स')),
+    ('3', 'ta-IN', 'தமிழ்', 'இன்று', ('இன்றைக்கு', 'நாளைக்கு', 'குறிப்புகள்')),
+    ('4', 'te-IN', 'తెలుగు', 'ఈరోజు', ('ఈరోజు', 'రేపటి', 'నోట్స్')),
+    ('5', 'mr-IN', 'मराठी', 'आज', ('आजसाठी', 'उद्यासाठी', 'नोट्स')),
+    ('6', 'bn-IN', 'বাংলা', 'আজ', ('আজকের', 'আগামীকালের', 'নোট')),
+    ('7', 'gu-IN', 'ગુજરાતી', 'આજે', ('આજ', 'આવતીકાલ', 'નોટ્સ')),
+]
+
+
+@pytest.mark.parametrize('number,language,label,today,question_words', LANGUAGE_CASES)
+async def test_all_seven_languages_persist_and_route_localized_questions(
+        octo, number, language, label, today, question_words):
+    await put(octo, notice())
+    await ask(octo, 'menu')
+    await ask(octo, '4')
+    event = await ask(octo, '1')
+    language_menu = replies(octo, event)[0]['text']
+    for option, _, name, _, _ in LANGUAGE_CASES:
+        assert f'{option} · {name}' in language_menu
+    event = await ask(octo, number)
+    assert f'1 · {today}' in replies(octo, event)[0]['text']
+    assert copy('saved', language) in replies(octo, event)[0]['text']
+    octo.store.close()
+    octo.store = Store(octo.settings.data_dir / 'test.sqlite3')
+    parent = octo.menus.preferences(question(), octo.roster.resolve(question()))
+    assert parent['language'] == language
+    other = question(sender_id='demo-parent-b', chat_id='demo-parent-b')
+    assert octo.menus.preferences(other, octo.roster.resolve(other))['language'] == 'ta-IN'
+
+    # Neutral commands must keep the explicitly saved language after a restart.
+    for command in ('menu', 'help', 'start', '0'):
+        event = await ask(octo, command)
+        assert copy('main', language) in replies(octo, event)[0]['text']
+    await ask(octo, '4')
+    event = await ask(octo, '2')
+    assert copy('audio', language) in replies(octo, event)[0]['text']
+    await ask(octo, '1')  # Keep automatic audio off; test explicit read-aloud below.
+    await ask(octo, '4')
+    event = await ask(octo, '1')
+    assert copy('languages', language) in replies(octo, event)[0]['text']
+
+    calls = []
+    async def answer(text, facts, names, fallback):
+        calls.append((text, fallback))
+        return GroundedAnswer(text='Synthetic grounded answer', spoken_text='Synthetic speech',
+                              language_code=language, source_ids=[facts[0]['source_id']])
+    octo.ai.answer = answer
+    for index, word in enumerate(question_words, 1):
+        await ask(octo, '0')
+        event = await ask(octo, str(index))
+        assert word in calls[-1][0]
+        assert calls[-1][1] == language
+        assert copy('footer', language) in replies(octo, event)[0]['text']
+    assert len(calls) == 3
+
+    # Read-aloud forwards the selected answer language to the speech adapter.
+    speech_calls = []
+    async def synthesize(text, code, path):
+        speech_calls.append((text, code))
+        path.write_bytes(b'SYNTHETIC AUDIO FIXTURE')
+        return path
+    octo.ai.synthesize = synthesize
+    octo.settings.mode = 'live'  # Injected adapters only; no live network calls.
+    event = question('localized-read-aloud', text='1')
+    assert octo.accept(event) == 'queued'
+    await octo.process(octo.store.next_message())
+    assert speech_calls == [('Synthetic speech', language)]
+    assert replies(octo, event)[0]['kind'] == 'voice'
+
+
+@pytest.mark.parametrize('text,preferred,expected', [
+    ('మెనూ', 'en-IN', 'te-IN'), ('সাহায্য', 'en-IN', 'bn-IN'),
+    ('મદદ', 'en-IN', 'gu-IN'), ('வணக்கம்', 'en-IN', 'ta-IN'),
+    ('मेनू', 'mr-IN', 'mr-IN'), ('मेनू', 'hi-IN', 'hi-IN'),
+])
+async def test_native_menu_commands_use_script_and_saved_marathi(octo, text, preferred, expected):
+    octo.roster.identities['demo-parent-a']['language'] = preferred
+    event = await ask(octo, text)
+    assert copy('main', expected) in replies(octo, event)[0]['text']
+    assert not octo.ai.answer_calls
+
+
+async def test_invalid_language_choice_does_not_change_saved_preference(octo):
+    await ask(octo, 'menu')
+    await ask(octo, '4')
+    await ask(octo, '1')
+    event = await ask(octo, '8')
+    assert octo.store.db.execute('SELECT COUNT(*) FROM ux_preferences').fetchone()[0] == 0
+    assert copy('expired', 'en-IN') in replies(octo, event)[0]['text']
 
 
 async def test_preferences_opt_in_is_explicit_and_groups_still_quiet(octo):

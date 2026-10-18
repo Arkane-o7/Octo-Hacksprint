@@ -78,6 +78,12 @@ chooses the language in the same call that answers the question, and TTS uses
 that answer's language. This does not change the saved preference. Fixed system
 notices, access refusals and cart commands currently retain their English wording.
 
+The private-chat menu supports English, Hindi, Tamil, Telugu, Marathi, Bengali
+and Gujarati. Send `menu` → `4` (Settings) → `1` (Language) to choose. Menu and
+audio preferences are saved for that parent and chat; typing `menu` again keeps
+the selected language. See [the numbered-menu guide](docs/ux/numbered-menus.md)
+for all choices and example conversations.
+
 1. Open `.env` locally and set `SARVAM_API_KEY`. `setup init` generates the two
    API/webhook secrets and disabled-dashboard passwords for a fresh checkout;
    it preserves an existing `.env`. Never commit or paste this file.

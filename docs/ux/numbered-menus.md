@@ -6,8 +6,31 @@ sendButtons, add a provider, change the WAHA session, or require new dependencie
 ## Parent experience
 
 In a private chat, send `menu`, `help`, `hi`, `hello` or a supported greeting.
-English, Hindi and Tamil menu copy is included. Other menu languages fall back
-to English; the existing school-answer language handling is unchanged.
+English, Hindi, Tamil, Telugu, Marathi, Bengali and Gujarati menu copy is included.
+Other menu languages fall back to English. Today, Tomorrow and Notes use a
+question in the menu language; freeform school answers still follow the current
+question's language.
+
+Send `menu`, then `4` (Settings), then `1` (Language). The language choices are:
+
+```text
+1 · English
+2 · हिंदी
+3 · தமிழ்
+4 · తెలుగు
+5 · मराठी
+6 · বাংলা
+7 · ગુજરાતી
+0 · Main menu
+```
+
+The heading and Main menu label are translated into the current menu language.
+The original three numbers stay unchanged. Selecting a language saves it for
+that parent in that private chat and shows the translated main menu. Neutral
+commands (`menu`, `help`, `start`, `0`) preserve this explicit choice across
+restarts. A greeting in another supported script can temporarily show that
+language without overwriting the saved choice. Hindi and Marathi share a script,
+so Devanagari menu commands use Marathi when it is the parent's preference.
 
 Example input and output pairs (school details below are illustrative):
 
@@ -99,7 +122,18 @@ Teacher greetings/help receive instructions without being extracted as school fa
 - Preferences and menu snapshots use the existing Store connection, including
   SQLCipher in encrypted deployments. No new plaintext side database is created.
 
-## Validation and integration
+## Language expansion validation
+
+The menu tests exercise all seven language selections, persistence across store
+reopen, translated settings and follow-up actions, question routing, and the
+language passed to the speech adapter. They also check native-script commands,
+invalid selections, and isolation between parents. These are synthetic adapter
+tests; they do not certify translation quality or live speech pronunciation.
+The full suite passes with **405 tests**, including **61 menu/onboarding tests**.
+All seven language codes are supported by the configured Bulbul v3 adapter and
+[Sarvam's language list](https://docs.sarvam.ai/api/api-guides-tutorials/text-to-speech/how-to/set-the-language).
+
+## Original implementation validation and integration
 
 22 focused offline tests in `tests/test_menus.py` cover routes, saved preferences,
 child scope changes, cross-parent/group boundaries, expiry, delivery uncertainty,
