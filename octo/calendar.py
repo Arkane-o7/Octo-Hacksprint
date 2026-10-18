@@ -40,6 +40,8 @@ def _event_id(source_id: str) -> str:
 def _description(source_id: str, class_id: str, extraction: dict) -> str:
     # Only scoped structured fields, never original message/transcript/provenance.
     lines = ["Octo source: " + source_id, "Class: " + class_id]
+    if extraction.get('summary'):
+        lines.extend(['', extraction['summary']])
     if extraction.get("items"):
         lines.extend(["", "Bring:", *("• " + item for item in extraction["items"])])
     if extraction.get("sections"):
@@ -188,7 +190,7 @@ class GoogleCalendarClient:
             raise CalendarError(NOT_CONFIGURED)
         title = extraction.get("summary") or " ".join(str(extraction.get(key) or "") for key in ("subject", "kind"))
         if extraction.get("kind") == "school_day":
-            title = {"no_classes": "No classes", "classes_scheduled": "Classes as usual"}.get(extraction.get("school_day_status"), title)
+            title = {"no_classes": "No classes", "classes_scheduled": "Classes as usual", "half_day": "Half-day classes"}.get(extraction.get("school_day_status"), title)
         class_id = str(fact.get("class_id", ""))
         title = "Class " + " ".join(class_id.split()) + " — " + (" ".join(str(title).split()) or "School notice")
         body = {

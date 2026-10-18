@@ -16,6 +16,7 @@ from .contracts import Extraction, IncomingMessage, NoticeDecision
 from .storage import Store
 from .conversation import Conversation
 from .calendar_links import CalendarLinks
+from .notice_dates import resolve_notice_date
 from .sarvam import SarvamError
 
 logger = logging.getLogger(__name__)
@@ -299,44 +300,28 @@ class Octo:
         self.reply(row['source_id'], event, safe, 'error')
 
     async def _save_extraction(self, sid: str, event: IncomingMessage, caller: dict, result: Extraction):
-        if result.kind == 'unknown' or (result.kind != 'school_day' and not (result.items or result.sections)):
+        if result.kind == 'event' and (result.status != 'active' or result.replaces_source_ids):
+            self.reply(sid, event, 'I have not changed the saved events. Changes or cancellations of an existing activity are not supported by this notice flow yet.')
+            return
+        if (result.kind == 'unknown'
+                or (result.kind not in ('school_day', 'event') and not (result.items or result.sections))
+                or (result.kind == 'event' and not (result.summary or '').strip())):
             if event.kind in ('image', 'document'):
-                self.reply(sid, event, 'I could not identify school requirements, syllabus topics or lesson notes in this attachment. Please send the actual school notice or a clearer photo of the notes; nothing was saved.')
+                self.reply(sid, event, 'I could not identify school requirements, syllabus topics, lesson notes or a school event in this attachment. Please send the actual school notice or a clearer photo of the notes; nothing was saved.')
             else:
-                self.reply(sid, event, 'I have not saved this notice. I can save supplies, syllabus topics, or a dated whole-class holiday/class-day notice. Specific lesson, test or practice changes are not supported yet.')
+                self.reply(sid, event, 'I have not saved this notice. I can save supplies, syllabus topics, new school events, or dated whole-class attendance notices including half-days. Specific lesson, test or practice changes are not supported yet.')
             return
         if result.class_as_written:
             normalize = lambda x: re.sub(r'[^a-z0-9]', '', x.lower().replace('class', '').replace('grade', ''))
             if normalize(result.class_as_written) != normalize(caller['class_id']):
                 self.reply(sid, event, 'The class written in this notice differs from this group. Please confirm the correct class before I save it.')
                 return
-        if result.due_date:
-            try:
-                date.fromisoformat(result.due_date)
-            except ValueError:
-                result.due_date = None
-                result.unclear.append('Date could not be resolved; please confirm it.')
         if not result.date_as_written and result.due_date:
-            result.due_date = None
             result.unclear.append('No date was supplied in the source.')
-        if result.date_as_written:
-            relative = result.date_as_written.strip().lower().rstrip('.')
-            if relative in ('today', 'tomorrow', 'day after tomorrow'):
-                offset = {'today': 0, 'tomorrow': 1, 'day after tomorrow': 2}[relative]
-                result.due_date = (event.timestamp.astimezone(ZoneInfo('Asia/Kolkata')).date() + timedelta(days=offset)).isoformat()
-            else:
-                # Do not depend on model date arithmetic for an explicit full
-                # English date. Ambiguous numeric dates and missing years stay
-                # unresolved unless the model established an unambiguous date.
-                for format_string in ('%Y-%m-%d', '%d %B %Y', '%d %b %Y'):
-                    try:
-                        result.due_date = datetime.strptime(result.date_as_written.strip(), format_string).date().isoformat()
-                        break
-                    except ValueError:
-                        pass
+        result.due_date = resolve_notice_date(result.date_as_written, event.timestamp, result.due_date)
         if result.kind == 'school_day':
             if not result.school_day_status or result.subject or result.items or result.sections or result.unclear:
-                self.reply(sid, event, 'I have not changed the class-day record. Please confirm whether the whole class has no classes or classes as usual, and give the date. Send any supplies or syllabus in a separate notice.')
+                self.reply(sid, event, 'I have not changed the class-day record. Please confirm whether the whole class has no classes, classes as usual, or a half-day, and give the date. Send any supplies or syllabus in a separate notice.')
                 return
             if not result.due_date:
                 self.reply(sid, event, 'Which date does this class-day notice apply to? Please resend the full notice with the date; I have not changed the class-day record.')
@@ -345,6 +330,8 @@ class Octo:
             result.school_day_status = None
         if result.kind == 'requirement' and not result.due_date:
             result.unclear.append('When should students bring these items?')
+        if result.kind == 'event' and not result.due_date:
+            result.unclear.append('What date is this event?')
         self.store.save_fact(sid, caller, result, event)
         self.queue_calendar_sync()
         lines = [f"Saved for Class {caller['class_id']}" + (f" — {result.subject}" if result.subject else '')]
@@ -353,7 +340,12 @@ class Octo:
         if result.due_date:
             lines.append(f'Date: {result.due_date}')
         if result.kind == 'school_day':
-            lines.append('No classes.' if result.school_day_status == 'no_classes' else 'Classes as usual.')
+            lines.append({'no_classes': 'No classes.', 'classes_scheduled': 'Classes as usual.',
+                          'half_day': 'Half-day classes.'}[result.school_day_status])
+            if result.summary:
+                lines.append(result.summary)
+        elif result.kind == 'event':
+            lines.append(result.summary)
         lines.extend('• ' + item for item in result.items)
         for section in result.sections:
             if section.chapter:
@@ -566,7 +558,7 @@ class Octo:
         return False
 
     def _schedule_reminders(self, source_id, record, message_time):
-        if self.settings.mode != 'live' or record.status != 'active' or not record.due_date or record.kind == 'school_day':
+        if self.settings.mode != 'live' or record.status != 'active' or not record.due_date or record.kind in ('school_day', 'event'):
             return 0
         due = date.fromisoformat(record.due_date)
         hour, minute = [int(part) for part in self.settings.reminder_time.split(':')]

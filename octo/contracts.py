@@ -57,8 +57,8 @@ class Extraction(BaseModel):
     student_id: str | None = Field(default=None, description='An explicitly named student ID from the supplied roster, or null for a class-wide fact.')
     replaces_source_ids: list[str] = Field(default_factory=list, description='Exact existing scoped fact source_ids being explicitly corrected, postponed or cancelled. Empty for new independent information. Ask when the target is ambiguous.')
     date_changed: bool = Field(default=False, description='For a replacement only: true only when THIS update explicitly changes its date; false when preserving the existing date, even if another fact in the message says tomorrow.')
-    school_day_status: Literal["no_classes", "classes_scheduled"] | None = Field(
-        default=None, description='Only for kind school_day: explicit whole-class no-classes/holiday or classes-as-usual notice. Never use for cancellation of a single subject, test or activity.')
+    school_day_status: Literal["no_classes", "classes_scheduled", "half_day"] | None = Field(
+        default=None, description='Only for kind school_day: explicit whole-class no-classes/holiday, classes-as-usual, or half-day notice. Half-day does not mean no classes. Never use for a competition/event or cancellation of a single subject, test or activity.')
     subject: str | None = None
     class_as_written: str | None = Field(default=None, description='Class explicitly written in source text; null if only known from group context.')
     date_as_written: str | None = Field(default=None, description='Exact source wording of the relevant date, or null when absent.')

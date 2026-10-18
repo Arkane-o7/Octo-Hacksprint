@@ -104,7 +104,7 @@ async def test_create_all_day_event_is_scoped_minimal_and_has_real_link(credenti
     assert event["start"] == {"date": "2028-02-29"}
     assert event["end"] == {"date": "2028-03-01"}
     assert event["summary"] == "Class 5B — Science test: Plants"
-    assert event["description"] == "Octo source: source-one\nClass: 5B"
+    assert event["description"] == "Octo source: source-one\nClass: 5B\n\nScience test: Plants"
     assert "PRIVATE" not in json.dumps(event)
     assert sum(r.method == "POST" and r.url.host == "www.googleapis.com" for r in backend.calls) == 1
 
@@ -292,13 +292,25 @@ async def test_structured_description_is_useful_and_html_escaped(credentials, fa
     assert "PRIVATE" not in description and "source-one" in description
 
 
-@pytest.mark.parametrize("status,title", [("no_classes", "No classes"), ("classes_scheduled", "Classes as usual")])
+@pytest.mark.parametrize("status,title", [("no_classes", "No classes"), ("classes_scheduled", "Classes as usual"), ("half_day", "Half-day classes")])
 async def test_school_day_title_states_the_actual_status(credentials, fact, status, title):
     fact["extraction"].update(kind="school_day", school_day_status=status, summary="Teacher's school notice")
     backend = FakeCalendar()
     async with httpx.AsyncClient(transport=httpx.MockTransport(backend)) as http:
         result = await GoogleCalendarClient(credentials, CALENDAR_ID, client=http).sync_fact(fact)
     assert backend.events[result["event_id"]]["summary"] == "Class 5B — " + title
+
+
+async def test_half_day_keeps_stated_dismissal_time_in_calendar_description(credentials, fact):
+    fact['extraction'].update(kind='school_day', school_day_status='half_day',
+                              summary='Half-day classes; students leave at 12:30 PM.')
+    backend = FakeCalendar()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(backend)) as http:
+        result = await GoogleCalendarClient(credentials, CALENDAR_ID, client=http).sync_fact(fact)
+    event = backend.events[result['event_id']]
+    assert event['summary'] == 'Class 5B — Half-day classes'
+    assert 'students leave at 12:30 PM' in event['description']
+    assert 'date' in event['start'] and 'dateTime' not in event['start']
 
 
 @pytest.mark.parametrize("code", [404, 410])

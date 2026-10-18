@@ -67,7 +67,21 @@ holiday, no classes tomorrow" mean kind school_day, school_day_status no_classes
 "Classes as usual tomorrow" means kind school_day, school_day_status
 classes_scheduled. This applies to the routed class only. Set subject null,
 items [] and sections [] for these notices; preserve the date and any uncertainty.
+"Upcoming Friday will be halfday" means kind school_day, school_day_status
+half_day, date_as_written "upcoming Friday". Halfday, half day and half-day mean
+a shortened school day, NOT a holiday or classes as usual. A missing dismissal
+time is an optional detail, not an unclear date or status; do not invent it.
+New school events such as competitions, sports days, meetings and celebrations
+are supported as kind event. Preserve the event name in summary, its date in
+date_as_written, and exact arrival/start times and participant restrictions in
+summary/instructions. A competition is NOT a school_day attendance notice.
+For "24th October the school is hosting Karate competetion, request all the
+participants to arrive by 10 AM", use kind event, date_as_written "24th October",
+school_day_status null, summary naming the Karate competition and instructions
+that PARTICIPANTS arrive by 10 AM. Do not assert all students must attend or
+that the competition starts at 10 AM. Missing end times are optional, not unclear.
 Do not infer a closure from a question, a possibility, or a negated closure.
+Questions and tentative plans are not asserted new events: return kind unknown.
 A missing date remains null; never assume tomorrow. A single subject lesson,
 test or practice cancellation/postponement is NOT a whole-class closure:
 those changes remain unsupported, so return kind unknown and explain in unclear.
@@ -79,6 +93,9 @@ class_context is trusted routing context, not evidence of text on the board.
 date_as_written preserves the source wording. Resolve an unambiguous relative
 date only against message_time_ist. due_date is YYYY-MM-DD; ambiguous numerical
 dates, missing years that cannot be established, or absent dates remain null.
+For an English day and month without a year, use the message_time_ist year.
+Resolve upcoming/next weekdays to the next occurrence after the message date;
+retain the exact weekday wording. Never discard an ordinal such as "24th".
 Return the requested JSON schema, without prose or Markdown fences."""
 
 
@@ -444,7 +461,7 @@ class SarvamClient:
 
     async def extract_notice(self, text: str, message_time: datetime, class_label: str) -> Extraction:
         result = await self._structured(
-            Extraction, EXTRACTION_INSTRUCTIONS + "\nExtract a requirement, syllabus or whole-class school_day notice; otherwise kind unknown.",
+            Extraction, EXTRACTION_INSTRUCTIONS + "\nExtract a requirement, syllabus, new school event, or whole-class school_day notice (including half_day); otherwise kind unknown.",
             {**self._context(message_time, class_label), "message": text},
             json_mode=True, repair_once=True,
         )
@@ -709,7 +726,8 @@ class SarvamClient:
                 if source.get(key):
                     item[key] = source[key]
             if record.get('kind') == 'school_day':
-                item['attendance'] = {'no_classes': 'No classes on this date', 'classes_scheduled': 'Classes as usual on this date'}.get(record.get('school_day_status'))
+                item['attendance'] = {'no_classes': 'No classes on this date', 'classes_scheduled': 'Classes as usual on this date',
+                                      'half_day': 'Half-day classes on this date; do not infer the dismissal time'}.get(record.get('school_day_status'))
                 if record.get('school_day_status') == 'no_classes' and record.get('due_date'):
                     affected = [other['source_id'] for other in facts if other.get('extraction', {}).get('due_date') == record['due_date']
                                 and other.get('class_id') == fact.get('class_id')

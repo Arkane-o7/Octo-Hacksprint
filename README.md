@@ -80,6 +80,17 @@ Calendar links, with audio according to the original voice-reply preference or
 voice input. Numbered menus, list pickers, buttons and join-menu onboarding are
 removed. Existing encrypted notices and saved records are retained.
 
+Teacher notices also support new school events (competitions, meetings and
+celebrations) and whole-class half-days. Event summaries retain participant
+restrictions and stated arrival times. A half-day never implies a holiday or an
+unstated dismissal time. English dates such as `24th October` use the original
+message's year; `upcoming Friday` resolves to the next Friday from the message's
+India date. Clear dated events can sync as all-day Calendar entries, retaining
+arrival times in the description without inventing an end time. New events do
+not automatically schedule reminders to every parent. The general update parser
+remains disabled; cancellations/postponements of individual activities still
+need clarification.
+
 Each generated answer follows the language of the latest typed message or voice
 transcript, and its audio uses that same language. Language is chosen again on
 each turn: English questions get English, Hindi questions get Hindi, including
@@ -178,8 +189,9 @@ manual account action, not something offline replay performs.
 
 ## Supported flow and operating limits
 
-By default, live text and speech use the established requirement/syllabus/dated
-class-day extractor. This still does not handle general chat or event changes.
+By default, live text and speech use the requirement/syllabus/new-event/dated
+class-day extractor, including half-days. This still does not handle general
+teacher chat or changes to previously announced activities.
 The experimental `OCTO_GENERAL_BRAIN=true` path uses a broad Sarvam proposal. Its
 category is open-ended: notices, homework, events, supplies and other school
 facts need not match a hardcoded topic. Code validates class/student scope,
