@@ -111,7 +111,7 @@ class Conversation:
         if not ids or any(sid not in facts for sid in ids):
             return None
         return {'id': 'reply:' + str(reply['id']), 'kind': 'assistant_reference',
-                'timestamp': timestamp, 'source_versions_verified': False,
+                'basis': 'school', 'timestamp': timestamp, 'source_versions_verified': False,
                 'text': reply['text'].split('\n\nSources:\n', 1)[0][:TEXT_LIMIT],
                 'previous_question': self._user_entry(row)['text'], 'source_ids': ids}
 

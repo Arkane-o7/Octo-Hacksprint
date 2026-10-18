@@ -190,6 +190,7 @@ async def test_legacy_reply_supplies_selected_text_as_historical_reference(octo)
     assert 'Sources:' not in quoted['text']
     assert quoted['timestamp'] == first.timestamp.isoformat()
     assert quoted['source_versions_verified'] is False
+    assert quoted['basis'] == 'school'
 
 
 @pytest.mark.parametrize('change', ['updated', 'replaced', 'private'])
@@ -239,6 +240,7 @@ async def test_legacy_quote_reaches_model_with_text_despite_unrelated_recent_mem
         assert selected['text'].endswith('Bring crayons and a drawing book.')
         assert selected['previous_question'] == first.text
         assert selected['source_versions_verified'] is False
+        assert json.loads(payload['messages'][-2]['content']) == {'selected_message': selected}
         assert prompt == 'explain it in 2 lines'
         assert 'My pickup time is 4 pm.' in json.dumps(data['conversation_context'])
         assert 'referent is quoted.text' in payload['messages'][0]['content']

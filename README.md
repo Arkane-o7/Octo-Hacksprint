@@ -101,6 +101,10 @@ text as historical reference when all their citations are still accessible; curr
 school facts take precedence over that older wording. Unknown or inaccessible quotes
 ask for clarification. Embedded quote text is never trusted as a permission grant
 or a teacher notice.
+The resolved quote is also supplied immediately before the current request. The
+answer must reference its ID, including when explaining a school notice or asking
+about a missing detail; a response that ignores the selection uses the existing
+bounded validation retry and is not accepted if it still omits that reference.
 
 This is bounded conversation memory, not unlimited permanent recall. Earlier
 user-provided details can be recalled as "you told me", separately from verified

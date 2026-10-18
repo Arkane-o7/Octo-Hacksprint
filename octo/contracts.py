@@ -79,7 +79,7 @@ class GroundedAnswer(BaseModel):
     basis: Literal['school', 'conversation', 'clarification'] = Field(default='school',
         description='School information requires current fact source_ids. Conversation recalls only what this user said; clarification asks for missing information and asserts no school facts.')
     context_ids: list[str] = Field(default_factory=list, max_length=12,
-        description='Exact supplied conversation reference IDs supporting recall of user-provided details. Never substitutes for teacher sources about school facts.')
+        description='Exact supplied conversation reference IDs. When a selected_message is provided, include its id for every answer basis, including school and clarification. Also cite references used to recall user-provided details. These never replace teacher source_ids for school facts.')
     language_code: str = Field(pattern=r'^[a-z]{2,3}-[A-Z]{2}$',
         description='Language of this answer and spoken_text, chosen from the CURRENT question. An explicit reply-language request wins; the saved preference is only a fallback for unclear input.')
     text: str

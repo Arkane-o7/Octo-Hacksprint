@@ -126,6 +126,7 @@ async def test_latest_language_input_is_separate_from_quote_history_and_preferen
         assert data['fallback_language'] == language
         assert f'REQUIRED REPLY LANGUAGE FOR THIS TURN:' in instructions
         assert payload['messages'][-1] == {'role': 'user', 'content': question}
+        assert json.loads(payload['messages'][-2]['content']) == {'selected_message': context['quoted']}
         assert 'ONLY the final user message' in instructions
         assert 'TOPIC, not language' in instructions
         assert 'kal kya lana hai?' in instructions
@@ -174,6 +175,77 @@ async def test_repeated_language_mismatch_is_not_returned_as_a_valid_answer():
     with pytest.raises(SarvamError, match='valid school record'):
         await client_for(handler).answer('Explain this', [{'source_id': 'notice'}], [], 'hi-IN')
     assert len(calls) == 2
+
+
+@pytest.mark.parametrize('basis', ['school', 'clarification'])
+async def test_ignoring_a_known_quote_retries_with_the_same_selected_message(basis):
+    selected = {'id': 'reply:101', 'kind': 'assistant_reference', 'source_versions_verified': False,
+                'text': 'कल 19 अक्टूबर को कक्षाएं रद्द हैं।', 'source_ids': ['notice']}
+    calls = []
+
+    def handler(request):
+        payload = json.loads(request.content)
+        calls.append(payload)
+        assert payload['messages'][-1]['content'] == 'explain in 2 lines'
+        assert json.loads(payload['messages'][-2]['content']) == {'selected_message': selected}
+        answer = {'language_code': 'en-IN', 'basis': basis, 'text': 'Which message do you mean?',
+                  'context_ids': [], 'source_ids': ['notice'] if basis == 'school' else []}
+        if len(calls) == 2:
+            answer.update(basis='school', text='Classes are cancelled on 19 October.\nPlease do not attend school that day.',
+                          context_ids=[selected['id']], source_ids=['notice'])
+        return httpx.Response(200, json=completion(answer))
+
+    result = await client_for(handler).answer('explain in 2 lines', [{'source_id': 'notice'}], [], 'hi-IN',
+        context={'quoted': selected, 'history': [{'text': 'My pickup time is 4 pm.'}]})
+    assert result.context_ids == [selected['id']]
+    assert result.text.startswith('Classes are cancelled')
+    assert len(calls) == 2
+
+
+async def test_repeated_failure_to_reference_quote_is_not_returned():
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json=completion({
+            'language_code': 'en-IN', 'basis': 'clarification', 'text': 'Which message do you mean?',
+            'context_ids': ['message:unrelated'],
+        }))
+
+    with pytest.raises(SarvamError, match='valid school record'):
+        await client_for(handler).answer('explain this', [], [], 'en-IN', context={'quoted': {
+            'id': 'message:pickup', 'kind': 'your_message', 'text': 'My pickup time is 4 pm.',
+        }})
+    assert len(calls) == 2
+
+
+async def test_known_quote_can_still_clarify_details_absent_from_that_message():
+    selected = {'id': 'message:pickup', 'kind': 'your_message', 'text': 'My pickup time is 4 pm.'}
+    client = client_for(lambda request: httpx.Response(200, json=completion({
+        'language_code': 'en-IN', 'basis': 'clarification', 'text': 'You gave a pickup time, but not the location. Where is pickup?',
+        'context_ids': [selected['id']],
+    })))
+    result = await client.answer('Where is this?', [], [], 'en-IN', context={'quoted': selected})
+    assert result.basis == 'clarification' and result.context_ids == [selected['id']]
+
+
+@pytest.mark.parametrize('basis', ['conversation', 'school'])
+async def test_school_quote_keeps_school_sources_even_when_summarizing_prior_chat(basis):
+    selected = {'id': 'reply:101', 'kind': 'assistant_reference', 'basis': 'school',
+                'source_ids': ['notice'], 'text': 'Classes are cancelled tomorrow.'}
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json=completion({
+            'language_code': 'en-IN', 'basis': basis if len(calls) == 1 else 'school',
+            'text': 'Classes are cancelled tomorrow.', 'context_ids': [selected['id']],
+            'source_ids': [] if len(calls) == 1 else ['notice'],
+        }))
+
+    result = await client_for(handler).answer('explain this', [{'source_id': 'notice'}], [], 'en-IN',
+                                              context={'quoted': selected})
+    assert result.basis == 'school' and result.source_ids == ['notice'] and len(calls) == 2
 
 
 @pytest.mark.asyncio
