@@ -14,15 +14,6 @@ MENU_TTL = 30 * 60
 OPEN_MENU = {'menu', 'help', 'hi', 'hello', 'start', 'मेन्यू', 'मेनू', 'मदद', 'नमस्ते', 'உதவி', 'வணக்கம்',
              'మెనూ', 'సహాయం', 'నమస్కారం', 'मदत', 'नमस्कार', 'মেনু', 'সাহায্য', 'নমস্কার', 'મેનુ', 'મદદ', 'નમસ્તે'}
 NEUTRAL_MENU_COMMANDS = {'menu', 'help', 'start', '0'}
-CHOOSE_LABEL = {'en': 'Choose', 'hi': 'चुनें', 'ta': 'தேர்ந்தெடுக்கவும்', 'te': 'ఎంచుకోండి',
-                'mr': 'निवडा', 'bn': 'বেছে নিন', 'gu': 'પસંદ કરો'}
-TAP_HINT = {'en': 'Tap the button below, or reply with a number.',
-            'hi': 'नीचे का बटन दबाएँ या नंबर भेजें।',
-            'ta': 'கீழே உள்ள பொத்தானைத் தொடவும் அல்லது எண்ணை அனுப்பவும்.',
-            'te': 'కింద ఉన్న బటన్‌ను నొక్కండి లేదా సంఖ్యను పంపండి.',
-            'mr': 'खालील बटण दाबा किंवा क्रमांक पाठवा.',
-            'bn': 'নিচের বোতামে ট্যাপ করুন বা নম্বর পাঠান।',
-            'gu': 'નીચેનું બટન દબાવો અથવા નંબર મોકલો.'}
 QUESTIONS = {
     'en-IN': {'1': 'What are the saved school notices for today?', '2': 'What are the saved school notices for tomorrow?', '3': 'Show the saved class notes, syllabus and document links.'},
     'hi-IN': {'1': 'आज के लिए स्कूल की क्या जानकारी सेव है?', '2': 'कल के लिए स्कूल की क्या जानकारी सेव है?', '3': 'सेव किए हुए कक्षा के नोट्स, पाठ्यक्रम और दस्तावेज़ लिंक दिखाएँ।'},
@@ -115,30 +106,6 @@ class Menus:
         with self.db:
             self.db.execute('DELETE FROM ux_menus WHERE session=? AND chat=? AND person=?', self.key(event, parent))
 
-    def outgoing(self, reply):
-        """Render only the current scoped menu, never arbitrary model text."""
-        if not self.app.settings.tappable_menus or reply['chat_id'].endswith('@g.us'):
-            return None
-        row = self.db.execute("SELECT state,expires FROM ux_menus WHERE chat=? AND json_extract(state,'$.message_key')=?",
-                              (reply['chat_id'], reply['dedupe_key'])).fetchone()
-        if not row or row['expires'] <= time.time():
-            return None
-        state = json.loads(row['state'])
-        page = state['page']
-        if page not in ('main', 'settings', 'languages', 'audio', 'ask', 'answer'):
-            return None
-        text = copy('footer' if page == 'answer' else page, state['language'])
-        token = fingerprint(state['message_key'])[:16]
-        rows = [{'title': label[:24], 'rowId': f'octo:{token}:{number}'}
-                for number, label in re.findall(r'(?m)^([0-9]{1,2}) · (.+)$', text)]
-        # Preserve long answers as ordinary text instead of truncating facts.
-        if not rows or len(rows) > 10 or len(reply['text']) > 3500:
-            return None
-        button = CHOOSE_LABEL.get(state['language'].split('-')[0], 'Choose')
-        return {'title': 'Octo', 'description': reply['text'], 'button': button,
-                'footer': TAP_HINT.get(state['language'].split('-')[0], TAP_HINT['en']),
-                'sections': [{'title': button, 'rows': rows}]}
-
     def _snapshot(self, event, parent):
         # Save the interpretation BEFORE changing pages: restart cannot reinterpret
         # "1" as a different action after moving from one menu to another.
@@ -193,13 +160,6 @@ class Menus:
 
     async def handle(self, sid, event, parent, text):
         clean = text.strip().casefold().rstrip('!?.।')
-        selection = None
-        if event.menu_choice_id is not None:
-            selection = re.fullmatch(r'octo:([a-f0-9]{16}):([0-9]{1,2})', event.menu_choice_id)
-            if not selection:
-                self.app.reply(sid, event, copy('fresh', parent.get('language', 'en-IN')))
-                return MenuRoute(handled=True)
-            clean = selection[2]
         opening = clean in OPEN_MENU or clean == '0'
         numeric = bool(re.fullmatch(r'[0-9]{1,2}', clean))
         language = menu_language(text, parent)
@@ -217,10 +177,7 @@ class Menus:
             self.app.reply(sid, event, copy('fresh', language))
             return MenuRoute(handled=True)
         state = self._snapshot(event, parent)
-        if selection and (not state or state['expires'] <= time.time()
-                          or fingerprint(state['message_key'])[:16] != selection[1]):
-            return self.show(sid, event, parent, language=language, prefix=copy('expired', language))
-        if not selection and (event.is_quoted or event.quoted_message_id):
+        if event.is_quoted or event.quoted_message_id:
             if not state.get('remote_id') or state['remote_id'] != event.quoted_message_id:
                 self.app.reply(sid, event, copy('fresh', language))
                 return MenuRoute(handled=True)

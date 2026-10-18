@@ -101,13 +101,17 @@ async def test_departed_member_is_never_welcomed(app, client, stage):
         assert octo.store.replies()[0]['status'] == 'cancelled'
 
 
-async def test_group_lookup_failure_is_bounded_and_recovers_safely(app, client):
+async def test_group_lookup_failure_is_bounded_and_recovers_safely(app, client, monkeypatch):
+    from types import SimpleNamespace
+    clock = [100.0]
+    monkeypatch.setattr('octo.core.time', SimpleNamespace(monotonic=lambda: clock[0], time=time.time))
     octo = app.state.octo
     await send(client, joined())
     octo.transport.membership_error = True
     await drain(octo)
     assert not octo.transport.sent
     octo.transport.membership_error = False
+    clock[0] += 31
     with octo.store.db:
         octo.store.db.execute('UPDATE ux_join_jobs SET next_attempt=0')
     await drain(octo)

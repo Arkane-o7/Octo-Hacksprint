@@ -1,7 +1,10 @@
 name: octo-demo
 services:
   waha:
-    image: devlikeapro/waha:noweb-arm-2026.9.2
+    image: octo-waha:noweb-arm-2026.9.2-group-members
+    build:
+      context: .
+      dockerfile: Dockerfile.waha
     platform: linux/arm64
     ports:
       - "127.0.0.1:3000:3000"

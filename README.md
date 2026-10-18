@@ -56,11 +56,17 @@ group or in DMs. Non-members receive no automated replies, including numbers
 listed in the parent roster. Live group membership is checked through WAHA
 before ingestion, processing and delivery; a failed lookup does not reuse old
 membership. Phone/LID aliases come from the transport's participant list.
+The pinned WAHA image is built with `Dockerfile.waha` to query only the requested
+group. Upstream NOWEB 2026.9.2 fetches every group for each participants request,
+which triggered WhatsApp's `rate-overlimit` error during menu navigation.
+The patch keeps fresh membership checks and never falls back to stale access.
+If a lookup fails at ingestion, Octo returns HTTP 503 so WAHA can retry the
+original webhook, with a 30-second lookup cooldown to avoid a retry burst.
 New members receive one private welcome and numbered menu after a verified join
 in a configured class group. This requires the signed WAHA
 `group.v2.participants` event, included in `compose.yaml` alongside `message`.
 After upgrading an existing installation, recreate the WAHA service with
-`docker compose up -d waha` to apply the webhook subscription. Existing session
+`docker compose up -d --build waha` to apply the transport fix and webhook subscription. Existing session
 volumes are retained. Members who joined before the subscription was enabled can
 send `menu` in a DM; the app does not broadcast a welcome to the existing roster.
 
@@ -83,10 +89,6 @@ and Gujarati. Send `menu` → `4` (Settings) → `1` (Language) to choose. Menu 
 audio preferences are saved for that parent and chat; typing `menu` again keeps
 the selected language. See [the numbered-menu guide](docs/ux/numbered-menus.md)
 for all choices and example conversations.
-Set `OCTO_TAPPABLE_MENUS=true` to try a localized Choose button that opens a
-tappable list in private chats through WAHA NOWEB. Numbered choices remain in
-the message. WAHA lists are experimental; verify handset rendering and selection
-before presenting them. This does not add a paid messaging provider.
 
 1. Open `.env` locally and set `SARVAM_API_KEY`. `setup init` generates the two
    API/webhook secrets and disabled-dashboard passwords for a fresh checkout;
@@ -94,13 +96,13 @@ before presenting them. This does not add a paid messaging provider.
 2. Start Docker Desktop, then run:
 
    ```sh
-   docker compose up -d
+   docker compose up -d --build
    uv run python -m octo.setup status
    ```
 
    On this Mac, if `docker` is not on PATH, use
    `/Applications/Docker.app/Contents/Resources/bin/docker`.
-   The image is pinned to `devlikeapro/waha:noweb-arm-2026.9.2`. The dedicated
+   The base image is pinned to `devlikeapro/waha:noweb-arm-2026.9.2`. The dedicated
    volumes are named under `octo-demo`; no Hermes or personal session is reused.
 3. Once the dedicated account is ready, explicitly create/start its session and
    get the QR:

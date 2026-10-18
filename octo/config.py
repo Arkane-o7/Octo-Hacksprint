@@ -12,8 +12,6 @@ class Settings(BaseModel):
     mode: Literal["offline", "live"] = "offline"
     db_key: str = Field(default="", repr=False)
     general_brain: bool = False
-    tappable_menus: bool = False
-    menu_style: Literal['list', 'buttons'] = 'list'
     data_dir: Path = Path("data")
     roster_path: Path = Path("roster.example.json")
     sarvam_api_key: str = Field(default="", repr=False)
@@ -40,8 +38,6 @@ class Settings(BaseModel):
             db_key=os.getenv("OCTO_DB_KEY", ""),
             mode=os.getenv("OCTO_MODE", "offline"),
             general_brain=os.getenv('OCTO_GENERAL_BRAIN', 'false').lower() == 'true',
-            tappable_menus=os.getenv('OCTO_TAPPABLE_MENUS', 'false').lower() == 'true',
-            menu_style=os.getenv('OCTO_MENU_STYLE', 'list'),
             data_dir=Path(os.getenv("OCTO_DATA_DIR", "data")),
             roster_path=Path(os.getenv("OCTO_ROSTER", "roster.example.json")),
             sarvam_api_key=os.getenv("SARVAM_API_KEY", ""),

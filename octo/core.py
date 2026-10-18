@@ -152,6 +152,7 @@ class Octo:
         self.menus = Menus(self)
         self.onboarding = Onboarding(self)
         self._membership_lock = asyncio.Lock()
+        self._membership_retry_at = 0.0
         self.drive = drive
         self.calendar = calendar
         self.media_dir = settings.data_dir / 'media'
@@ -163,9 +164,12 @@ class Octo:
 
     async def refresh_memberships(self):
         if not self.roster.live:
-            return
+            return True
         async with self._membership_lock:
+            if time.monotonic() < self._membership_retry_at:
+                return False
             snapshots = {}
+            available = True
             for group in self.roster.data['groups']:
                 try:
                     snapshots[group] = await self.transport.group_members(group)
@@ -173,8 +177,12 @@ class Octo:
                     # Never retain stale permissions when membership is unknown.
                     logger.warning('Group membership check failed (%s)', type(exc).__name__)
                     snapshots[group] = []
+                    available = False
             for group, members in snapshots.items():
-                self.roster.set_group_members(group, members)
+                self.roster.set_group_members(group, members if available else [])
+            # Suppress retry bursts without granting access from stale data.
+            self._membership_retry_at = 0.0 if available else time.monotonic() + 30
+            return available
 
     def accept(self, event: IncomingMessage) -> str:
         if event.session != self.settings.waha_session:
@@ -192,7 +200,8 @@ class Octo:
             return 'ignored'
         if event.is_group and event.chat_id not in self.roster.data['groups']:
             return 'ignored'
-        await self.refresh_memberships()
+        if not await self.refresh_memberships():
+            return 'unavailable'
         caller = self.roster.resolve(event)
         if not caller:
             return 'ignored'
@@ -255,7 +264,7 @@ class Octo:
                 self.store.update(sid, transcript=text)
 
             if caller['role'] == 'teacher':
-                if event.menu_choice_id is not None or (event.kind == 'text' and text.strip().casefold().rstrip('!?.।') in OPEN_MENU):
+                if event.kind == 'text' and text.strip().casefold().rstrip('!?.।') in OPEN_MENU:
                     self.reply(sid, event, menu_copy('teacher', menu_language(text, caller)))
                 elif event.forwarded:
                     self.reply(sid, event, 'Please confirm this forwarded notice in a fresh class message with the relevant date. I have not changed the class records.')
@@ -591,7 +600,7 @@ class Octo:
         return True
 
     async def _answer(self, sid: str, event: IncomingMessage, parent: dict, text: str):
-        if event.menu_choice_id is None and re.match(r'^\s*(APPROVE|CHANGE|CANCEL)\b', text, re.I):
+        if re.match(r'^\s*(APPROVE|CHANGE|CANCEL)\b', text, re.I):
             if event.is_group:
                 self.reply(sid, event, 'Please send cart commands in a direct message to me.')
                 return
@@ -739,11 +748,7 @@ class Octo:
             if reply['kind'] == 'voice':
                 remote = await self.transport.send_voice(reply['chat_id'], Path(reply['path']))
             else:
-                menu = self.menus.outgoing(reply)
-                if menu and hasattr(self.transport, 'send_menu'):
-                    remote = await self.transport.send_menu(reply['chat_id'], reply['text'], menu, reply_to=reply['reply_to'])
-                else:
-                    remote = await self.transport.send_text(reply['chat_id'], reply['text'], reply_to=reply['reply_to'])
+                remote = await self.transport.send_text(reply['chat_id'], reply['text'], reply_to=reply['reply_to'])
             if self.settings.mode == 'live' and not remote:
                 raise ValueError('WhatsApp did not return a message ID.')
             self.store.delivery(reply['id'], 'fixture' if self.settings.mode == 'offline' else 'sent', remote_id=remote)

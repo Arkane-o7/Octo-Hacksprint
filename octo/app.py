@@ -29,7 +29,7 @@ def create_app(settings: Settings | None = None, *, ai=None, transport=None, dri
             chat_model=config.chat_model, stt_model=config.stt_model,
             tts_model=config.tts_model, document_language=config.document_language))
         messenger = transport or (OfflineTransport() if config.mode == 'offline' else WahaClient(
-            config.waha_base_url, config.waha_api_key, config.waha_session, menu_style=config.menu_style))
+            config.waha_base_url, config.waha_api_key, config.waha_session))
         documents = drive or (GoogleDriveClient(config.drive_credentials_path, config.drive_root_folder_id) if config.mode == 'live' else None)
         schedule = calendar or (GoogleCalendarClient(config.calendar_credentials_path, config.calendar_id) if config.mode == 'live' else None)
         app.state.octo = Octo(config, store, roster, model, messenger, drive=documents, calendar=schedule)
@@ -58,8 +58,6 @@ def create_app(settings: Settings | None = None, *, ai=None, transport=None, dri
         return {'status': 'ok', 'mode': octo.settings.mode,
                 'parent_access': 'group_members_only',
                 'join_onboarding_enabled': True,
-                'tappable_menus_enabled': octo.settings.tappable_menus,
-                'menu_style': octo.settings.menu_style,
                 'general_brain_enabled': octo.settings.general_brain,
                 'calendar_configured': bool(octo.calendar and octo.calendar.configured),
                 'external_integrations_verified': False,
@@ -91,6 +89,11 @@ def create_app(settings: Settings | None = None, *, ai=None, transport=None, dri
         if event is None:
             return {'status': 'ignored'}
         status = await octo.ingest(event)
+        logging.getLogger(__name__).info('Webhook message outcome: %s', status)
+        if status == 'unavailable':
+            # Acknowledge only definitive outcomes. WAHA retries failed hooks;
+            # returning 200 here permanently loses the original message.
+            raise HTTPException(503, 'Group membership temporarily unavailable.', headers={'Retry-After': '30'})
         return {'status': status}
 
     return app

@@ -27,7 +27,6 @@ class IncomingMessage(BaseModel):
     forwarded: bool = False
     quoted_message_id: str | None = None
     is_quoted: bool = False
-    menu_choice_id: str | None = None
 
     @field_validator("timestamp")
     @classmethod

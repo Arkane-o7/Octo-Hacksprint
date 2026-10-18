@@ -8,7 +8,6 @@ import asyncio
 import base64
 import hashlib
 import hmac
-import json
 import math
 import mimetypes
 import re
@@ -116,33 +115,12 @@ def normalize(payload: dict) -> IncomingMessage | None:
 
     content = _content(raw)
     nodes = [_mapping(content.get(name)) for name in (
-        "extendedTextMessage", "imageMessage", "audioMessage", "documentMessage", "videoMessage", "listResponseMessage",
-        "buttonsResponseMessage", "templateButtonReplyMessage", "interactiveResponseMessage",
+        "extendedTextMessage", "imageMessage", "audioMessage", "documentMessage", "videoMessage",
     )]
     context = next((_mapping(node.get("contextInfo")) for node in nodes if node.get("contextInfo")), {})
     text = _string(message.get("body")) or _string(message.get("caption"))
     if not text:
         text = next((_string(node.get("caption")) for node in nodes if node.get("caption")), "")
-    selection = _mapping(content.get('listResponseMessage'))
-    choice_id = None
-    if selection:
-        choice_id = _string(_mapping(selection.get('singleSelectReply')).get('selectedRowId')) or 'invalid'
-        # Display titles are untrusted and must never become cart/freeform commands.
-        text = ''
-    button_response = _mapping(content.get('buttonsResponseMessage'))
-    template_response = _mapping(content.get('templateButtonReplyMessage'))
-    interactive_response = _mapping(content.get('interactiveResponseMessage'))
-    if button_response or template_response or interactive_response:
-        choice_id = _string(button_response.get('selectedButtonId')) or _string(template_response.get('selectedId'))
-        native = _mapping(interactive_response.get('nativeFlowResponseMessage'))
-        params = _string(native.get('paramsJson'))
-        if not choice_id and 0 < len(params) <= 4096:
-            try:
-                choice_id = _string(_mapping(json.loads(params)).get('id'))
-            except ValueError:
-                pass
-        choice_id = choice_id or 'invalid'
-        text = ''
     media_info = _mapping(message.get("media"))
     media = None
     kind = "text"
@@ -170,12 +148,11 @@ def normalize(payload: dict) -> IncomingMessage | None:
         forwarded=message.get("isForwarded") is True or context.get("isForwarded") is True,
         quoted_message_id=_string(reply.get("id")) or _string(context.get("stanzaId")) or None,
         is_quoted=bool(reply) or bool(context.get('quotedMessage')) or bool(context.get('stanzaId')),
-        menu_choice_id=choice_id,
     )
 
 
 class WahaClient:
-    def __init__(self, base_url: str, api_key: str, session: str, *, client: httpx.AsyncClient | None = None, menu_style: str = 'list'):
+    def __init__(self, base_url: str, api_key: str, session: str, *, client: httpx.AsyncClient | None = None):
         parsed = urlsplit(base_url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
             raise ValueError("WAHA base URL must be an HTTP(S) origin without credentials")
@@ -184,7 +161,6 @@ class WahaClient:
         self.base_url = base_url.rstrip("/")
         self._origin = parsed
         self.session = session
-        self.menu_style = menu_style
         self._headers = {"X-Api-Key": api_key}
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(30, connect=10), follow_redirects=False)
@@ -314,31 +290,6 @@ class WahaClient:
             "session": self.session, "chatId": _jid(chat_id), "convert": True,
             "file": {"mimetype": mime, "filename": path.name, "data": base64.b64encode(path.read_bytes()).decode("ascii")},
         })
-
-    async def send_menu(self, chat_id: str, text: str, menu: dict, reply_to: str | None = None) -> str | None:
-        """Try NOWEB's DM list API; only definite unsupported requests fall back.
-
-        Timeouts/5xx/ambiguous acceptance never trigger a second send.
-        The description retains numbered options for clients hiding the list UI.
-        """
-        if _jid(chat_id).endswith('@g.us'):
-            raise ValueError('Tappable menus are available only in private chat')
-        body = {'session': self.session, 'chatId': _jid(chat_id), 'message': menu}
-        endpoint = '/api/sendList'
-        if self.menu_style == 'buttons':
-            endpoint = '/api/sendButtons'
-            body = {'session': self.session, 'chatId': _jid(chat_id),
-                    'header': menu['title'], 'body': menu['description'], 'footer': menu.get('footer', ''),
-                    'buttons': [{'type': 'reply', 'id': row['rowId'], 'text': row['title']}
-                                for section in menu['sections'] for row in section['rows']]}
-        if reply_to:
-            body['reply_to'] = reply_to
-        try:
-            return await self._post(endpoint, body)
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code not in (400, 404, 405, 422, 501):
-                raise
-            return await self.send_text(chat_id, text, reply_to=reply_to)
 
     async def close(self):
         if self._owns_client:
