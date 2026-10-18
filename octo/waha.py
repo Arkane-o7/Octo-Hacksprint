@@ -115,12 +115,18 @@ def normalize(payload: dict) -> IncomingMessage | None:
 
     content = _content(raw)
     nodes = [_mapping(content.get(name)) for name in (
-        "extendedTextMessage", "imageMessage", "audioMessage", "documentMessage", "videoMessage",
+        "extendedTextMessage", "imageMessage", "audioMessage", "documentMessage", "videoMessage", "listResponseMessage",
     )]
     context = next((_mapping(node.get("contextInfo")) for node in nodes if node.get("contextInfo")), {})
     text = _string(message.get("body")) or _string(message.get("caption"))
     if not text:
         text = next((_string(node.get("caption")) for node in nodes if node.get("caption")), "")
+    selection = _mapping(content.get('listResponseMessage'))
+    choice_id = None
+    if selection:
+        choice_id = _string(_mapping(selection.get('singleSelectReply')).get('selectedRowId')) or 'invalid'
+        # Display titles are untrusted and must never become cart/freeform commands.
+        text = ''
     media_info = _mapping(message.get("media"))
     media = None
     kind = "text"
@@ -148,6 +154,7 @@ def normalize(payload: dict) -> IncomingMessage | None:
         forwarded=message.get("isForwarded") is True or context.get("isForwarded") is True,
         quoted_message_id=_string(reply.get("id")) or _string(context.get("stanzaId")) or None,
         is_quoted=bool(reply) or bool(context.get('quotedMessage')) or bool(context.get('stanzaId')),
+        menu_choice_id=choice_id,
     )
 
 
@@ -290,6 +297,24 @@ class WahaClient:
             "session": self.session, "chatId": _jid(chat_id), "convert": True,
             "file": {"mimetype": mime, "filename": path.name, "data": base64.b64encode(path.read_bytes()).decode("ascii")},
         })
+
+    async def send_menu(self, chat_id: str, text: str, menu: dict, reply_to: str | None = None) -> str | None:
+        """Try NOWEB's DM list API; only definite unsupported requests fall back.
+
+        Timeouts/5xx/ambiguous acceptance never trigger a second send.
+        The description retains numbered options for clients hiding the list UI.
+        """
+        if _jid(chat_id).endswith('@g.us'):
+            raise ValueError('Tappable menus are available only in private chat')
+        body = {'session': self.session, 'chatId': _jid(chat_id), 'message': menu}
+        if reply_to:
+            body['reply_to'] = reply_to
+        try:
+            return await self._post('/api/sendList', body)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code not in (400, 404, 405, 422, 501):
+                raise
+            return await self.send_text(chat_id, text, reply_to=reply_to)
 
     async def close(self):
         if self._owns_client:

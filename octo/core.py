@@ -255,7 +255,7 @@ class Octo:
                 self.store.update(sid, transcript=text)
 
             if caller['role'] == 'teacher':
-                if event.kind == 'text' and text.strip().casefold().rstrip('!?.।') in OPEN_MENU:
+                if event.menu_choice_id is not None or (event.kind == 'text' and text.strip().casefold().rstrip('!?.।') in OPEN_MENU):
                     self.reply(sid, event, menu_copy('teacher', menu_language(text, caller)))
                 elif event.forwarded:
                     self.reply(sid, event, 'Please confirm this forwarded notice in a fresh class message with the relevant date. I have not changed the class records.')
@@ -591,7 +591,7 @@ class Octo:
         return True
 
     async def _answer(self, sid: str, event: IncomingMessage, parent: dict, text: str):
-        if re.match(r'^\s*(APPROVE|CHANGE|CANCEL)\b', text, re.I):
+        if event.menu_choice_id is None and re.match(r'^\s*(APPROVE|CHANGE|CANCEL)\b', text, re.I):
             if event.is_group:
                 self.reply(sid, event, 'Please send cart commands in a direct message to me.')
                 return
@@ -739,7 +739,11 @@ class Octo:
             if reply['kind'] == 'voice':
                 remote = await self.transport.send_voice(reply['chat_id'], Path(reply['path']))
             else:
-                remote = await self.transport.send_text(reply['chat_id'], reply['text'], reply_to=reply['reply_to'])
+                menu = self.menus.outgoing(reply)
+                if menu and hasattr(self.transport, 'send_menu'):
+                    remote = await self.transport.send_menu(reply['chat_id'], reply['text'], menu, reply_to=reply['reply_to'])
+                else:
+                    remote = await self.transport.send_text(reply['chat_id'], reply['text'], reply_to=reply['reply_to'])
             if self.settings.mode == 'live' and not remote:
                 raise ValueError('WhatsApp did not return a message ID.')
             self.store.delivery(reply['id'], 'fixture' if self.settings.mode == 'offline' else 'sent', remote_id=remote)

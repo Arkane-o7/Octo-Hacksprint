@@ -1,7 +1,29 @@
 # Numbered menus over WAHA
 
-This feature uses ordinary quoted WhatsApp text messages. It does not call
-sendButtons, add a provider, change the WAHA session, or require new dependencies.
+By default this feature uses ordinary quoted WhatsApp text messages. With
+`OCTO_TAPPABLE_MENUS=true`, private-chat menus use WAHA NOWEB's free `sendList`
+endpoint: one localized Choose button opens a list of tappable options. Main,
+Settings, Language, Audio and short answer follow-ups are supported. Child
+selection and long answers retain numbered text. No provider or dependency is
+added, and the WAHA session is retained.
+
+This is a list picker, not a row of inline reply buttons. WAHA marks `sendButtons`
+as broken and warns that list messages can also stop working. Check rendering
+and selection on the actual handset. The same message includes numbered choices
+as a fallback. A definite unsupported/invalid-request response sends text instead;
+timeouts, server errors and missing message IDs remain uncertain and are never
+automatically resent. Set the flag false and restart to return to text menus.
+
+List replies carry a menu-specific option ID. The router verifies the current
+parent/chat/session, scope, delivery and expiry before using it. Stale, forwarded
+and cross-parent selections cannot change preferences. Display titles cannot
+become cart approvals or freeform model requests. Menu navigation makes no AI call.
+The existing speech and question actions still use Sarvam credits.
+
+See the [WAHA list-message contract](https://waha.devlike.pro/docs/how-to/send-messages/#send-list).
+The tappable-menu change passes **426 tests**, including 21 new normalization,
+selection, isolation, fallback and uncertain-delivery checks. Tests use synthetic
+adapters; actual list rendering still requires a handset check.
 
 ## Parent experience
 

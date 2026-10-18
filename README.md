@@ -83,6 +83,10 @@ and Gujarati. Send `menu` → `4` (Settings) → `1` (Language) to choose. Menu 
 audio preferences are saved for that parent and chat; typing `menu` again keeps
 the selected language. See [the numbered-menu guide](docs/ux/numbered-menus.md)
 for all choices and example conversations.
+Set `OCTO_TAPPABLE_MENUS=true` to try a localized Choose button that opens a
+tappable list in private chats through WAHA NOWEB. Numbered choices remain in
+the message. WAHA lists are experimental; verify handset rendering and selection
+before presenting them. This does not add a paid messaging provider.
 
 1. Open `.env` locally and set `SARVAM_API_KEY`. `setup init` generates the two
    API/webhook secrets and disabled-dashboard passwords for a fresh checkout;
