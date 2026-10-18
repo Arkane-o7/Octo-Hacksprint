@@ -83,7 +83,10 @@ async def test_full_signed_text_photo_voice_flow_with_real_adapters(tmp_path):
         assert request.headers['api-subscription-key'] == 'fake-sarvam'
         if path == '/v1/chat/completions':
             source = json.loads(json.loads(request.content)['messages'][1]['content'])
-            if 'facts' in source:
+            if 'current_question' in source:
+                from octo.conversation import FollowupIntent
+                result = FollowupIntent()
+            elif 'facts' in source:
                 assert source['student_names'] == ['Aarav']
                 assert len(source['facts']) == 2
                 result = GroundedAnswer(language_code='hi-IN', text='आरव को क्रेयॉन और ड्रॉइंग बुक लानी है। विज्ञान: पौधे के भाग, जड़ें और तने।',

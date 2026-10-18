@@ -64,6 +64,10 @@ class OfflineAI:
             return Transcript(text='மீரா நாளை என்ன கொண்டு வர வேண்டும்? அறிவியல் தேர்வுக்கு என்ன படிக்க வேண்டும்?', language_code='ta-IN')
         return Transcript(text='आरव को कल क्या लाना है और विज्ञान के टेस्ट के लिए क्या पढ़ना है?', language_code='hi-IN')
 
+    async def resolve_followup(self, question, context=None):
+        from .conversation import fixture_followup
+        return fixture_followup(question)
+
     async def answer(self, question, facts, student_names, language):
         lines = ['Synthetic answer for ' + ', '.join(student_names) + ':']
         for fact in facts:
