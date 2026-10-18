@@ -49,7 +49,7 @@ async def test_greeting_acknowledgement_and_question_do_not_make_facts(app):
     await put(app, event(text='hi'), NoticeDecision(reply='Hi! Send me the class updates.'))
     await put(app, event('two', text='ok buddy'), NoticeDecision(reply='Got it.'))
     assert app.store.counts()['facts'] == 0
-    assert 'Hi!' in app.transport.sent[0]['text']
+    assert 'Post a class-wide notice' in app.transport.sent[0]['text']
     assert app.ai.calls[-1][1][0]['message'] == 'hi'
 
 
