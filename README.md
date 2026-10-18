@@ -299,6 +299,15 @@ future-dated, class-wide records. All-day events carry the structured details an
 source reference. Private/student records, unclear records and undated notes do
 not sync. Google invitations and default reminders are disabled.
 
+For compact Calendar links in replies, set `OCTO_CALENDAR_SHORT_LINKS=true`
+in live mode. This sends the original event URL to the free is.gd service,
+which stores it. Octo verifies the redirect before use and caches the result in
+the encrypted live database. Canonical Google URLs and event permissions remain
+unchanged. A failed request falls back to the original link, with a three-second
+operation limit and a one-minute cooldown before trying the service again.
+Offline mode never calls the shortener. See the
+[is.gd API reference](https://is.gd/apishorteningreference.php).
+
 Validated replacements remove obsolete event IDs before adding the replacement.
 Deterministic IDs, persisted jobs and bounded retries avoid duplicate events on
 restart. Use `uv run python -m octo.google_setup --retry-calendar` after fixing

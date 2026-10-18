@@ -30,6 +30,7 @@ class Settings(BaseModel):
     drive_root_folder_id: str = ''
     calendar_credentials_path: Path | None = None
     calendar_id: str = ''
+    calendar_short_links: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -55,6 +56,7 @@ class Settings(BaseModel):
             drive_root_folder_id=os.getenv('GOOGLE_DRIVE_FOLDER_ID', ''),
             calendar_credentials_path=Path(os.environ['GOOGLE_CALENDAR_CREDENTIALS']) if os.getenv('GOOGLE_CALENDAR_CREDENTIALS') else (Path(os.environ['GOOGLE_DRIVE_CREDENTIALS']) if os.getenv('GOOGLE_DRIVE_CREDENTIALS') else None),
             calendar_id=os.getenv('GOOGLE_CALENDAR_ID', ''),
+            calendar_short_links=os.getenv('OCTO_CALENDAR_SHORT_LINKS', 'false').lower() == 'true',
         )
 
     def check_live(self) -> None:

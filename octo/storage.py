@@ -55,6 +55,9 @@ class Store:
                 metadata TEXT, error TEXT,
                 PRIMARY KEY(source_id,calendar_id)
             );
+            CREATE TABLE IF NOT EXISTS calendar_links (
+                original_url TEXT PRIMARY KEY, short_url TEXT NOT NULL
+            );
         """)
         keys = [row[1] for row in self.db.execute('PRAGMA table_info(fact_replacements)') if row[5]]
         if keys == ['old_source_id']:
@@ -217,6 +220,14 @@ class Store:
                 source = json.loads(row[0])
                 source['calendar'] = metadata
                 self.db.execute('UPDATE facts SET provenance=? WHERE source_id=?', (json.dumps(source), source_id))
+
+    def calendar_link(self, original_url):
+        row = self.db.execute('SELECT short_url FROM calendar_links WHERE original_url=?', (original_url,)).fetchone()
+        return row[0] if row else None
+
+    def save_calendar_link(self, original_url, short_url):
+        with self.db:
+            self.db.execute('INSERT OR REPLACE INTO calendar_links VALUES(?,?)', (original_url, short_url))
 
     def due_reminder(self, now):
         row = self.db.execute("SELECT * FROM reminders WHERE status='pending' AND due_at<=? ORDER BY due_at LIMIT 1", (now,)).fetchone()

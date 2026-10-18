@@ -60,6 +60,7 @@ def create_app(settings: Settings | None = None, *, ai=None, transport=None, dri
                 'conversation_context_enabled': True,
                 'general_brain_enabled': octo.settings.general_brain,
                 'calendar_configured': bool(octo.calendar and octo.calendar.configured),
+                'calendar_short_links_enabled': octo.calendar_links.enabled,
                 'external_integrations_verified': False,
                 'note': 'Local app health only; does not establish WhatsApp/Sarvam availability.'}
 

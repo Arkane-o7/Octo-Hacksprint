@@ -15,6 +15,7 @@ from .config import Settings
 from .contracts import Extraction, IncomingMessage, NoticeDecision
 from .storage import Store
 from .conversation import Conversation
+from .calendar_links import CalendarLinks
 from .sarvam import SarvamError
 
 logger = logging.getLogger(__name__)
@@ -150,6 +151,7 @@ class Octo:
         self._membership_retry_at = 0.0
         self.drive = drive
         self.calendar = calendar
+        self.calendar_links = CalendarLinks(store, enabled=settings.mode == 'live' and settings.calendar_short_links)
         self.media_dir = settings.data_dir / 'media'
         self.media_dir.mkdir(parents=True, exist_ok=True)
 
@@ -666,6 +668,7 @@ class Octo:
             self.reply(sid, event, 'I could not verify an answer against the saved notices. Please ask again or ask the teacher to clarify.')
             return
         citations = []
+        calendar_urls = {}
         for source_id in dict.fromkeys(answer.source_ids):
             source = by_id[source_id]['source']
             citations.append(f"{source['sender']}, {source['timestamp']} [{source_id}]")
@@ -674,10 +677,16 @@ class Octo:
                 citations.append('Document: ' + document['url'])
             calendar = source.get('calendar') or {}
             if calendar.get('status') == 'synced' and calendar.get('url'):
-                citations.append('Calendar: ' + calendar['url'])
+                original = calendar['url']
+                if original not in calendar_urls:
+                    calendar_urls[original] = await self.calendar_links.shorten(original)
+                    citations.append('Calendar: ' + calendar_urls[original])
         if not citations and answer.context_ids and answer.basis == 'conversation':
             citations.append('Your messages in this chat (not a teacher notice).')
-        self.reply(sid, event, answer.text + ('\n\nSources:\n' + '\n'.join(citations) if citations else ''))
+        reply_text = answer.text
+        for original, short in calendar_urls.items():
+            reply_text = reply_text.replace(original, short)
+        self.reply(sid, event, reply_text + ('\n\nSources:\n' + '\n'.join(citations) if citations else ''))
         self.conversation.save(sid, answer, facts, students)
         if not event.is_group and answer.proposed_items and answer.cart_request_quote and answer.cart_request_quote.casefold() in text.casefold():
             from .cart import CartService
