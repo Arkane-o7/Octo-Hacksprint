@@ -80,6 +80,17 @@ Calendar links, with audio according to the original voice-reply preference or
 voice input. Numbered menus, list pickers, buttons and join-menu onboarding are
 removed. Existing encrypted notices and saved records are retained.
 
+Each generated answer follows the language of the latest typed message or voice
+transcript, and its audio uses that same language. Language is chosen again on
+each turn: English questions get English, Hindi questions get Hindi, including
+romanized Hindi such as "kal kya lana hai?". An explicit request such as "reply in
+Telugu" takes precedence. Quoted messages, history and notices provide the topic;
+their language does not override the latest question. The saved language preference
+is only a fallback when the current message's language is unclear.
+Clear inputs receive a local language hint without a detection API call. The
+existing validation retry also checks for a conflicting response language or
+clearly mismatched written/audio text before an answer is accepted.
+
 Conversation context now accompanies each question: up to the last 12 nonempty exchanges
 from the same parent, chat, session and current access scope, persisted in the
 encrypted database across restarts. Reply to a saved message in WhatsApp and ask

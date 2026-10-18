@@ -39,15 +39,16 @@ async def test_followups_receive_recent_text_and_successfully_delivered_reply(oc
     second = question('NEXT', text='And tomorrow?')
     seen = []
 
-    async def answer(prompt, facts, names, language):
-        seen.append(prompt)
+    async def answer(prompt, facts, names, language, *, context=None):
+        seen.append((prompt, context))
         return GroundedAnswer(language_code='en-IN', text='Bring crayons.', source_ids=[facts[0]['source_id']])
 
     octo.ai.answer = answer
     await put(octo, second)
-    assert 'What should Aarav bring?' in seen[0]
-    assert 'Synthetic answer for Aarav' in seen[0]
-    assert seen[0].endswith('Parent question: And tomorrow?')
+    assert seen[0][0] == 'And tomorrow?'
+    assert seen[0][1]['history'][0]['text'] == 'What should Aarav bring?'
+    assert 'Synthetic answer for Aarav' in seen[0][1]['history'][0]['assistant']['text']
+    assert seen[0][1]['current_date_ist'] == '2026-10-18'
     assert '0 · Main menu' not in output(octo)
 
 
@@ -234,12 +235,12 @@ async def test_legacy_quote_reaches_model_with_text_despite_unrelated_recent_mem
         payload = json.loads(request.content)
         data = json.loads(payload['messages'][1]['content'])
         prompt = data['question']
-        selected = json.loads(prompt.split('\n', 1)[1].split('\nCURRENT_REQUEST:\n', 1)[0])['quoted']
+        selected = data['conversation_context']['quoted']
         assert selected['text'].endswith('Bring crayons and a drawing book.')
         assert selected['previous_question'] == first.text
         assert selected['source_versions_verified'] is False
-        assert prompt.endswith('Parent question: explain it in 2 lines')
-        assert 'My pickup time is 4 pm.' in prompt
+        assert prompt == 'explain it in 2 lines'
+        assert 'My pickup time is 4 pm.' in json.dumps(data['conversation_context'])
         assert 'referent is quoted.text' in payload['messages'][0]['content']
         seen.append(selected)
         return httpx.Response(200, json={'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps({

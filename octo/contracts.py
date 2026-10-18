@@ -117,7 +117,7 @@ class NoticeDecision(BaseModel):
 #   extract_syllabus(ocr_text: str, caption: str, message_time: datetime,
 #                    class_label: str) -> Extraction
 #   answer(question: str, facts: list[dict], student_names: list[str],
-#          language: str) -> GroundedAnswer
+#          language: str, *, context: dict | None = None) -> GroundedAnswer
 #   transcribe(path: Path, keyterms: list[str]) -> Transcript
 #   synthesize(text: str, language: str, destination: Path) -> Path
 #   close()

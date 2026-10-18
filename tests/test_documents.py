@@ -16,7 +16,7 @@ class Brain(OfflineAI):
         return NoticeDecision(records=[Extraction(kind='notes', subject='Science',
             summary='Science Chapter 6 notes', sections=[StudySection(chapter='Chapter 6', topics=['Roots'])])])
 
-    async def answer(self, question, facts, *args):
+    async def answer(self, question, facts, *args, context=None):
         self.facts_seen = facts
         return GroundedAnswer(language_code='en-IN', text='Science Chapter 6 notes are saved.', source_ids=[facts[0]['source_id']])
 

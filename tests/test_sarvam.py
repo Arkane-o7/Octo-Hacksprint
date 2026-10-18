@@ -91,12 +91,89 @@ async def test_conversation_prompt_uses_reference_data_without_old_cart_authorit
         }))
 
     client = client_for(handler)
-    historical = json.dumps({'history': [{'text': 'Parent question: buy crayons'}]})
-    result = await client.answer('CONVERSATION_CONTEXT:\n' + historical +
-                                '\nCURRENT_REQUEST:\nParent question: What time did I tell you?', [], [], 'en-IN')
+    historical = {'history': [{'text': 'Parent question: buy crayons'}]}
+    result = await client.answer('What time did I tell you?', [], [], 'en-IN', context=historical)
     assert result.basis == 'conversation' and result.context_ids == ['message:previous']
     assert result.proposed_items == [] and result.cart_request_quote is None
     assert len(seen) == 1  # Context needs no second model call.
+
+
+@pytest.mark.parametrize('question,language,reply', [
+    ('explain this', 'en-IN', 'Bring crayons.'),
+    ('इसे समझाओ', 'hi-IN', 'क्रेयॉन लाएँ।'),
+    ('kal kya lana hai?', 'hi-IN', 'क्रेयॉन लाएँ।'),
+    ('இதை விளக்குங்கள்', 'ta-IN', 'வண்ணக்கோல்கள் கொண்டு வரவும்.'),
+    ('దీనిని వివరించండి', 'te-IN', 'క్రేయాన్లు తీసుకురండి.'),
+    ('এটা বুঝিয়ে বলো', 'bn-IN', 'ক্রেয়ন আনতে হবে।'),
+    ('हे समजावून सांगा', 'mr-IN', 'रंगीत खडू आणा.'),
+    ('આ સમજાવો', 'gu-IN', 'રંગીન ખડિયા લાવો.'),
+    ('Explain this in Hindi.', 'hi-IN', 'क्रेयॉन लाएँ।'),
+])
+async def test_latest_language_input_is_separate_from_quote_history_and_preference(question, language, reply):
+    context = {'current_date_ist': '2026-10-18', 'history': [
+        {'id': 'message:previous', 'kind': 'your_message', 'text': 'हमेशा हिंदी में जवाब दो।'},
+    ], 'quoted': {'id': 'reply:1', 'kind': 'assistant_reply', 'basis': 'school',
+                 'text': 'क्रेयॉन लाएँ।', 'source_ids': ['notice']}}
+    calls = []
+
+    def handler(request):
+        payload = json.loads(request.content)
+        data = json.loads(payload['messages'][1]['content'])
+        instructions = payload['messages'][0]['content']
+        calls.append(data)
+        assert data['question'] == question  # No history/date/English wrapper in language input.
+        assert data['conversation_context'] == context
+        assert data['fallback_language'] == language
+        assert f'REQUIRED REPLY LANGUAGE FOR THIS TURN:' in instructions
+        assert payload['messages'][-1] == {'role': 'user', 'content': question}
+        assert 'ONLY the final user message' in instructions
+        assert 'TOPIC, not language' in instructions
+        assert 'kal kya lana hai?' in instructions
+        return httpx.Response(200, json=completion({
+            'language_code': language, 'basis': 'school', 'text': reply,
+            'spoken_text': reply, 'source_ids': ['notice'], 'context_ids': ['reply:1'],
+        }))
+
+    result = await client_for(handler).answer(question, [{'source_id': 'notice', 'items': ['crayons']}],
+                                              ['Aarav'], 'ta-IN', context=context)
+    assert (result.text, result.spoken_text, result.language_code) == (reply, reply, language)
+    assert len(calls) == 1  # No added detection or translation API call.
+
+
+@pytest.mark.parametrize('wrong', [
+    {'language_code': 'hi-IN'},
+    {'text': 'कल विज्ञान की कॉपी लाना है।'},
+    {'spoken_text': 'कल विज्ञान की कॉपी लाना है।'},
+])
+async def test_wrong_reply_or_audio_language_uses_existing_validation_retry(wrong):
+    calls = []
+    answer = {'language_code': 'en-IN', 'text': 'Bring the science notebook tomorrow.',
+              'spoken_text': 'Bring the science notebook tomorrow.', 'source_ids': ['notice']}
+
+    def handler(request):
+        payload = json.loads(request.content)
+        calls.append(payload)
+        assert payload['messages'][-1] == {'role': 'user', 'content': 'Explain this'}
+        assert 'REQUIRED REPLY LANGUAGE FOR THIS TURN: English (en-IN)' in payload['messages'][0]['content']
+        return httpx.Response(200, json=completion(dict(answer, **wrong) if len(calls) == 1 else answer))
+
+    result = await client_for(handler).answer('Explain this', [{'source_id': 'notice'}], [], 'hi-IN')
+    assert result.text == result.spoken_text == answer['text']
+    assert result.language_code == 'en-IN' and len(calls) == 2
+
+
+async def test_repeated_language_mismatch_is_not_returned_as_a_valid_answer():
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json=completion({
+            'language_code': 'hi-IN', 'text': 'कल कॉपी लाना है।', 'source_ids': ['notice'],
+        }))
+
+    with pytest.raises(SarvamError, match='valid school record'):
+        await client_for(handler).answer('Explain this', [{'source_id': 'notice'}], [], 'hi-IN')
+    assert len(calls) == 2
 
 
 @pytest.mark.asyncio
@@ -230,7 +307,7 @@ async def test_answer_receives_only_supplied_facts_and_rejects_unknown_source():
         source = json.loads(payload["messages"][1]["content"])
         assert source["facts"] == facts
         assert source["student_names"] == ["Aarav"]
-        assert source["fallback_language"] == "hi-IN"
+        assert source["fallback_language"] == "en-IN"
         return httpx.Response(200, json=completion({
             "language_code": "en-IN", "text": "Bring paint.", "source_ids": ["other-parent-private"], "spoken_text": None,
         }))

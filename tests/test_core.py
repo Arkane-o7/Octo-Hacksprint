@@ -41,9 +41,9 @@ class SpyAI(OfflineAI):
         self.job_status = 'completed'
         self.answer_override = None
 
-    async def answer(self, question, facts, student_names, language):
+    async def answer(self, question, facts, student_names, language, *, context=None):
         self.answer_calls.append((facts, student_names))
-        return self.answer_override or await super().answer(question, facts, student_names, language)
+        return self.answer_override or await super().answer(question, facts, student_names, language, context=context)
 
     async def submit_document(self, path):
         assert path.suffix == '.jpg'
@@ -315,7 +315,12 @@ async def test_each_question_routes_selected_language_to_tts_without_changing_pr
     octo.ai.synthesize = speak
     cases = [('What should I bring?', 'en-IN', 'Bring crayons.'),
              ('कल क्या लाना है?', 'hi-IN', 'क्रेयॉन लाएँ।'),
+             ('kal kya lana hai?', 'hi-IN', 'क्रेयॉन लाएँ।'),
              ('நாளை என்ன கொண்டு வர வேண்டும்?', 'ta-IN', 'வண்ணக்கோல்கள் கொண்டு வரவும்.'),
+             ('రేపు ఏమి తీసుకురావాలి?', 'te-IN', 'క్రేయాన్లు తీసుకురండి.'),
+             ('আগামীকাল কী আনতে হবে?', 'bn-IN', 'ক্রেয়ন আনতে হবে।'),
+             ('उद्या काय आणायचे आहे?', 'mr-IN', 'रंगीत खडू आणा.'),
+             ('કાલે શું લાવવાનું છે?', 'gu-IN', 'રંગીન ખડિયા લાવો.'),
              ('What should I bring? Reply in Telugu.', 'te-IN', 'క్రేయాన్లు తీసుకురండి.')]
     for index, (text, language, reply) in enumerate(cases):
         octo.ai.answer_override = GroundedAnswer(language_code=language, text=reply,
@@ -337,8 +342,9 @@ async def test_voice_language_uses_transcribed_question_and_selected_answer_lang
     async def transcribe(path, names):
         return Transcript(text=transcript, language_code='ta-IN')
 
-    async def answer(text, facts, names, fallback):
-        assert transcript in text and 'ignored caption' not in text
+    async def answer(text, facts, names, fallback, *, context=None):
+        assert text == transcript
+        assert context['current_message']['text'] == transcript
         return GroundedAnswer(language_code='ta-IN', text='வண்ணக்கோல்கள் கொண்டு வரவும்.', source_ids=[sid])
 
     async def speak(text, language, destination):
